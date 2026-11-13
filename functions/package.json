@@ -1,0 +1,33 @@
+{
+  "name": "handoveriq-functions",
+  "private": true,
+  "version": "1.0.0",
+  "description": "Firebase Cloud Functions & Genkit AI Engine for HandoverIQ",
+  "main": "lib/index.js",
+  "scripts": {
+    "build": "tsc",
+    "serve": "npm run build && firebase emulators:start --only functions",
+    "deploy": "firebase deploy --only functions"
+  },
+  "engines": {
+    "node": "20"
+  },
+  "dependencies": {
+    "@genkit-ai/ai": "^1.0.4",
+    "@genkit-ai/core": "^1.0.4",
+    "@genkit-ai/googleai": "^1.0.4",
+    "@google/generative-ai": "^0.24.0",
+    "cors": "^2.8.5",
+    "express": "^5.1.0",
+    "firebase-admin": "^13.1.0",
+    "firebase-functions": "^6.3.1",
+    "genkit": "^1.0.4"
+  },
+  "devDependencies": {
+    "@types/cors": "^2.8.17",
+    "@types/express": "^5.0.0",
+    "@types/node": "^22.13.5",
+    "typescript": "~5.7.2"
+  }
+}
+

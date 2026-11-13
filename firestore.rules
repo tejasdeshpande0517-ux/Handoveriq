@@ -1,0 +1,196 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    // =========================================================================
+    // Helper Functions for Role-Based Access Control (RBAC)
+    // =========================================================================
+    function isAuthenticated() {
+      return request.auth != null;
+    }
+
+    function getUserDoc() {
+      return get(/databases/$(database)/documents/users/$(request.auth.uid)).data;
+    }
+
+    function hasRole(role) {
+      return isAuthenticated() && getUserDoc().role == role;
+    }
+
+    function isAdmin() {
+      return hasRole('ADMIN');
+    }
+
+    function isTeamLeader() {
+      return hasRole('TEAM_LEADER');
+    }
+
+    function isDepartingMember() {
+      return hasRole('DEPARTING_MEMBER');
+    }
+
+    function isSuccessor() {
+      return hasRole('SUCCESSOR');
+    }
+
+    function isProjectParticipant(projectData) {
+      return isAdmin() ||
+        projectData.teamLeadId == request.auth.uid ||
+        request.auth.uid in projectData.memberIds;
+    }
+
+    function canReadHandover(handoverData) {
+      return isAdmin() ||
+        handoverData.createdBy == request.auth.uid ||
+        handoverData.departingMemberId == request.auth.uid ||
+        (isTeamLeader() && get(/databases/$(database)/documents/projects/$(handoverData.projectId)).data.teamLeadId == request.auth.uid) ||
+        (handoverData.successorId == request.auth.uid && handoverData.status == 'PUBLISHED');
+    }
+
+    // =========================================================================
+    // 1. users collection
+    // =========================================================================
+    match /users/{userId} {
+      allow read: if isAuthenticated();
+      allow create: if isAuthenticated()
+        && request.auth.uid == userId
+        && request.resource.data.role in ['SUCCESSOR', 'DEPARTING_MEMBER', 'TEAM_LEADER']
+        && request.resource.data.role != 'ADMIN';
+      allow update: if isAdmin() || (
+        isAuthenticated()
+        && request.auth.uid == userId
+        && request.resource.data.role == resource.data.role
+      );
+      allow delete: if isAdmin();
+    }
+
+    // =========================================================================
+    // 2. projects & projectMembers collections
+    // =========================================================================
+    match /projects/{projectId} {
+      allow read: if isAuthenticated() && isProjectParticipant(resource.data);
+      allow create: if isAdmin() || isTeamLeader();
+      allow update: if isAdmin() || (isTeamLeader() && resource.data.teamLeadId == request.auth.uid);
+      allow delete: if isAdmin() || (isTeamLeader() && resource.data.teamLeadId == request.auth.uid);
+    }
+
+    match /projectMembers/{memberDocId} {
+      allow read: if isAuthenticated();
+      allow create, update, delete: if isAdmin() || isTeamLeader();
+    }
+
+    // =========================================================================
+    // 3. handovers & handoverSessions collections
+    // =========================================================================
+    match /handovers/{handoverId} {
+      allow read: if isAuthenticated() && canReadHandover(resource.data);
+      allow create: if isAdmin() || isTeamLeader();
+      allow update: if (isAdmin() ||
+        (isTeamLeader() && (resource.data.createdBy == request.auth.uid || get(/databases/$(database)/documents/projects/$(resource.data.projectId)).data.teamLeadId == request.auth.uid)) ||
+        (isDepartingMember() && resource.data.departingMemberId == request.auth.uid && request.resource.data.status in ['ANALYZED', 'DEPARTING_REVIEW', 'LEADER_REVIEW']))
+        && (!resource.data.versionLocked || isAdmin() || isTeamLeader());
+      allow delete: if isAdmin();
+    }
+
+    match /handoverSessions/{sessionId} {
+      allow read: if isAuthenticated() && canReadHandover(resource.data);
+      allow create: if isAdmin() || isTeamLeader();
+      allow update: if (isAdmin() || isTeamLeader() || isDepartingMember())
+        && (!resource.data.versionLocked || isAdmin() || isTeamLeader());
+      allow delete: if isAdmin();
+    }
+
+    // =========================================================================
+    // 4. sources & uploadedSources collections
+    // =========================================================================
+    match /sources/{sourceId} {
+      allow read: if isAuthenticated() &&
+        canReadHandover(get(/databases/$(database)/documents/handovers/$(resource.data.handoverId)).data);
+      allow create: if isAdmin() || isTeamLeader() || isDepartingMember();
+      allow update, delete: if isAdmin() || isTeamLeader() || (isDepartingMember() && resource.data.uploadedBy == request.auth.uid);
+    }
+
+    match /uploadedSources/{sourceId} {
+      allow read: if isAuthenticated() &&
+        canReadHandover(get(/databases/$(database)/documents/handovers/$(resource.data.handoverId)).data);
+      allow create: if isAdmin() || isTeamLeader() || isDepartingMember();
+      allow update, delete: if isAdmin() || isTeamLeader() || (isDepartingMember() && resource.data.uploadedBy == request.auth.uid);
+    }
+
+    // =========================================================================
+    // 5. reportItems & extractedInsights collections
+    // =========================================================================
+    match /reportItems/{itemId} {
+      allow read: if isAuthenticated() && (
+        isAdmin() ||
+        isTeamLeader() ||
+        (isDepartingMember() && get(/databases/$(database)/documents/handovers/$(resource.data.handoverId)).data.departingMemberId == request.auth.uid) ||
+        (isSuccessor() &&
+          get(/databases/$(database)/documents/handovers/$(resource.data.handoverId)).data.successorId == request.auth.uid &&
+          get(/databases/$(database)/documents/handovers/$(resource.data.handoverId)).data.status == 'PUBLISHED' &&
+          resource.data.reviewStatus == 'APPROVED')
+      );
+      allow create: if isAdmin() || isTeamLeader();
+      allow update: if isAdmin() || isTeamLeader() || (
+        isDepartingMember() &&
+        get(/databases/$(database)/documents/handovers/$(resource.data.handoverId)).data.departingMemberId == request.auth.uid &&
+        request.resource.data.reviewStatus == resource.data.reviewStatus
+      );
+      allow delete: if isAdmin() || isTeamLeader();
+    }
+
+    match /extractedInsights/{insightId} {
+      allow read: if isAuthenticated() &&
+        canReadHandover(get(/databases/$(database)/documents/handovers/$(resource.data.handoverId)).data);
+      allow create, update: if isAdmin() || isTeamLeader() || isDepartingMember();
+      allow delete: if isAdmin() || isTeamLeader();
+    }
+
+    // =========================================================================
+    // 6. handoverReports & approvals collections
+    // Once versionLocked == true, unauthorized modifications are prevented.
+    // =========================================================================
+    match /handoverReports/{reportId} {
+      allow read: if isAuthenticated() &&
+        canReadHandover(get(/databases/$(database)/documents/handovers/$(resource.data.handoverId)).data);
+      allow create: if isAdmin() || isTeamLeader();
+      allow update: if (isAdmin() || isTeamLeader()) && (!resource.data.versionLocked || request.resource.data.status == 'REVISION_REQUESTED');
+      allow delete: if false;
+    }
+
+    match /approvals/{approvalId} {
+      allow read: if isAuthenticated() &&
+        canReadHandover(get(/databases/$(database)/documents/handovers/$(resource.data.handoverId)).data);
+      allow create: if isAdmin() || isTeamLeader();
+      allow update, delete: if false;
+    }
+
+    // =========================================================================
+    // 7. auditLogs collection (Strictly Append-Only)
+    // =========================================================================
+    match /auditLogs/{logId} {
+      allow read: if isAdmin() || isTeamLeader();
+      allow create: if isAuthenticated() && request.resource.data.userId == request.auth.uid;
+      allow update, delete: if false;
+    }
+
+    // =========================================================================
+    // 8. integrations, redactionRules, notifications
+    // =========================================================================
+    match /integrations/{integrationId} {
+      allow read: if isAuthenticated();
+      allow write: if isAdmin();
+    }
+
+    match /redactionRules/{ruleId} {
+      allow read: if isAuthenticated();
+      allow write: if isAdmin();
+    }
+
+    match /notifications/{notificationId} {
+      allow read, update: if isAuthenticated() && resource.data.userId == request.auth.uid;
+      allow create: if isAdmin() || isTeamLeader() || (isAuthenticated() && request.resource.data.userId == request.auth.uid);
+      allow delete: if isAdmin() || (isAuthenticated() && resource.data.userId == request.auth.uid);
+    }
+  }
+}

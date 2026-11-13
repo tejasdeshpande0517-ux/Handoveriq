@@ -1,0 +1,33 @@
+rules_version = '2';
+service firebase.storage {
+  match /b/{bucket}/o {
+    function isAuthenticated() {
+      return request.auth != null;
+    }
+
+    function isValidHandoverFile() {
+      return request.resource.size < 15 * 1024 * 1024 && (
+        request.resource.name.matches('.*\\.csv$') ||
+        request.resource.name.matches('.*\\.json$') ||
+        request.resource.name.matches('.*\\.pdf$') ||
+        request.resource.name.matches('.*\\.docx$') ||
+        request.resource.name.matches('.*\\.txt$')
+      );
+    }
+
+    function isHandoverParticipant(handoverId) {
+      let handover = firestore.get(/databases/(default)/documents/handovers/$(handoverId)).data;
+      let userRole = firestore.get(/databases/(default)/documents/users/$(request.auth.uid)).data.role;
+      return userRole == 'ADMIN' ||
+        handover.createdBy == request.auth.uid ||
+        handover.departingMemberId == request.auth.uid ||
+        (handover.successorId == request.auth.uid && handover.status == 'PUBLISHED');
+    }
+
+    match /handovers/{handoverId}/uploads/{fileName} {
+      allow read: if isAuthenticated() && isHandoverParticipant(handoverId);
+      allow write: if isAuthenticated() && isHandoverParticipant(handoverId) && isValidHandoverFile();
+    }
+  }
+}
+
