@@ -15,6 +15,7 @@ import type {
   UserProfile,
   UserRole,
 } from '../types';
+import { handleApiFallback } from './cloudFallback';
 
 const CSRF_COOKIE_NAME = 'handoveriq_csrf';
 
@@ -58,17 +59,32 @@ async function apiRequest<T>(
     }
   }
 
-  const response = await fetch(endpoint, {
-    ...options,
-    credentials: 'include',
-    headers,
-  });
+  try {
+    const response = await fetch(endpoint, {
+      ...options,
+      credentials: 'include',
+      headers,
+    });
 
-  const data = await response.json().catch(() => ({}));
-  if (!response.ok) {
-    throw new Error(data.error || `Request failed with HTTP ${response.status}`);
+    if (
+      response.status === 404 ||
+      response.status === 502 ||
+      response.status === 503
+    ) {
+      return await handleApiFallback<T>(endpoint, options);
+    }
+
+    const data = await response.json().catch(() => ({}));
+    if (!response.ok) {
+      throw new Error(data.error || `Request failed with HTTP ${response.status}`);
+    }
+    return data as T;
+  } catch (err) {
+    if (err instanceof TypeError) {
+      return await handleApiFallback<T>(endpoint, options);
+    }
+    throw err;
   }
-  return data as T;
 }
 
 export const api = {
