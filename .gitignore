@@ -11,4 +11,5 @@ ui-debug.log*
 server/data/storage/*
 server/data/firestore.json
 !server/data/.gitkeep
+.firebase/
 
