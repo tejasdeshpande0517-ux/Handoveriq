@@ -342,6 +342,22 @@ export const api = {
   integrations: {
     list: () =>
       apiRequest<{ integrations: IntegrationConfig[] }>('/api/integrations'),
+    listRepos: () =>
+      apiRequest<{
+        account: Record<string, any> | null;
+        repos: {
+          id: number;
+          name: string;
+          fullName: string;
+          owner: string;
+          private: boolean;
+          defaultBranch: string;
+          description: string;
+          language: string | null;
+          updatedAt: string;
+          htmlUrl: string;
+        }[];
+      }>('/api/github/repos'),
     configure: (id: 'github' | 'gemini', credential: string) =>
       apiRequest<{ integration: IntegrationConfig }>(
         `/api/integrations/${id}/configure`,

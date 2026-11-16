@@ -7,6 +7,7 @@ admin.initializeApp();
 
 const geminiApiKeySecret = defineSecret('GEMINI_API_KEY');
 const githubTokenSecret = defineSecret('GITHUB_TOKEN');
+const githubPatSecret = defineSecret('GITHUB_PAT');
 
 export const generateHandoverReport = onRequest(
   { secrets: [geminiApiKeySecret], cors: true },
@@ -58,5 +59,5 @@ export const generateHandoverReport = onRequest(
   }
 );
 
-export { githubTokenSecret };
+export { githubTokenSecret, githubPatSecret };
 

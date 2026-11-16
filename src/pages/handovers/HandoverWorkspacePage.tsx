@@ -129,6 +129,9 @@ export const HandoverWorkspacePage: React.FC = () => {
   const [publishing, setPublishing] = useState(false);
   const [versionSnapshots, setVersionSnapshots] = useState<HandoverReport[]>([]);
   const [expandedVersionId, setExpandedVersionId] = useState<string | null>(null);
+  const [accessibleRepos, setAccessibleRepos] = useState<
+    { fullName: string; defaultBranch: string; language: string | null }[]
+  >([]);
 
   const loadWorkspace = async () => {
     if (!id) return;
@@ -145,8 +148,13 @@ export const HandoverWorkspacePage: React.FC = () => {
       setReportItems(hRes.reportItems);
       setUsers(uRes.users);
       setIntegrations(intRes.integrations);
-      setGithubRepoInput(hRes.handover.githubRepo || 'octocat/Hello-World');
+      setGithubRepoInput(hRes.handover.githubRepo || 'Anuragkhobragade/Phoenix');
       setDepartingNotesInput(hRes.handover.departingMemberNotes || '');
+
+      api.integrations
+        .listRepos()
+        .then((rRes) => setAccessibleRepos(rRes.repos || []))
+        .catch(() => setAccessibleRepos([]));
 
       api.handovers
         .getVersions(id)
@@ -823,7 +831,7 @@ ISS-403,RISKS,Critical risk of certificate expiration on internal webhook gatewa
                   type="text"
                   value={githubRepoInput}
                   onChange={(e) => setGithubRepoInput(e.target.value)}
-                  placeholder="owner/repo (e.g., octocat/Hello-World)"
+                  placeholder="owner/repo (e.g., Anuragkhobragade/Phoenix)"
                   className="flex-1 px-3 py-2 rounded-lg border border-slate-300 text-xs font-mono"
                 />
                 <button
@@ -834,6 +842,29 @@ ISS-403,RISKS,Critical risk of certificate expiration on internal webhook gatewa
                   {importingGithub ? 'Fetching GitHub API...' : 'Import from GitHub'}
                 </button>
               </div>
+              {accessibleRepos.length > 0 && (
+                <div className="pt-1 space-y-1.5">
+                  <span className="text-[11px] font-semibold text-slate-500 block">
+                    PAT Verified Accessible Repositories (Click to Select):
+                  </span>
+                  <div className="flex flex-wrap gap-1.5">
+                    {accessibleRepos.slice(0, 8).map((repo) => (
+                      <button
+                        key={repo.fullName}
+                        type="button"
+                        onClick={() => setGithubRepoInput(repo.fullName)}
+                        className={`px-2 py-1 rounded-md text-[11px] font-mono border transition-colors ${
+                          githubRepoInput === repo.fullName
+                            ? 'bg-teal-700 text-white border-teal-700 font-semibold'
+                            : 'bg-slate-50 text-slate-700 border-slate-200 hover:bg-teal-50 hover:border-teal-300'
+                        }`}
+                      >
+                        {repo.fullName}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              )}
             </form>
           </div>
 

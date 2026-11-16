@@ -998,7 +998,7 @@ Open Question: Should the legacy v1 token introspection endpoint be deprecated i
   };
 
   // 7. Seed Integrations (Strictly Disconnected unless real env credentials exist and pass live verification!)
-  const envGithub = process.env.GITHUB_TOKEN || '';
+  const envGithub = process.env.GITHUB_PAT || process.env.GITHUB_TOKEN || '';
   const envGemini = process.env.GEMINI_API_KEY || '';
 
   const integrations: Record<string, IntegrationConfig> = {
@@ -1282,8 +1282,8 @@ function normalizeDatabaseSchema(db: FirestoreDatabaseSchema): FirestoreDatabase
   if (!db.serverSecrets.geminiApiKey && process.env.GEMINI_API_KEY) {
     db.serverSecrets.geminiApiKey = process.env.GEMINI_API_KEY;
   }
-  if (!db.serverSecrets.githubToken && process.env.GITHUB_TOKEN) {
-    db.serverSecrets.githubToken = process.env.GITHUB_TOKEN;
+  if (!db.serverSecrets.githubToken && (process.env.GITHUB_PAT || process.env.GITHUB_TOKEN)) {
+    db.serverSecrets.githubToken = process.env.GITHUB_PAT || process.env.GITHUB_TOKEN || '';
   }
 
   // Ensure every reportItem has the full ExtractedInsight schema fields
@@ -1372,7 +1372,14 @@ class FirestorePersistenceStore {
     this.db.handoverSessions = { ...this.db.handovers };
     this.db.uploadedSources = { ...this.db.sources };
     this.db.extractedInsights = { ...this.db.reportItems };
-    fs.writeFileSync(DB_FILE, JSON.stringify(this.db, null, 2), 'utf-8');
+    const diskCopy = {
+      ...this.db,
+      serverSecrets: {
+        githubToken: '',
+        geminiApiKey: '',
+      },
+    };
+    fs.writeFileSync(DB_FILE, JSON.stringify(diskCopy, null, 2), 'utf-8');
   }
 
   public appendAuditLog(params: {

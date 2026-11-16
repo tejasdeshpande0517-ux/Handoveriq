@@ -26,7 +26,7 @@ import type {
   UserRole,
 } from '../types';
 
-const STORE_KEY = 'handoveriq_cloud_store_v2';
+const STORE_KEY = 'handoveriq_cloud_store_v3';
 const CURRENT_USER_KEY = 'handoveriq_cloud_user_v1';
 
 interface CloudStore {
@@ -495,9 +495,9 @@ function createInitialStore(): CloudStore {
   const redactionRules: RedactionRule[] = [
     {
       id: 'rule-api-key',
-      name: 'Stripe / Generic API Keys',
+      name: 'Stripe / Generic API Keys & GitHub PATs',
       category: 'API_KEY',
-      pattern: '(sk_live_[A-Za-z0-9]{16,}|AIza[0-9A-Za-z_-]{35}|ghp_[A-Za-z0-9]{36})',
+      pattern: '(sk_live_[A-Za-z0-9]{16,}|AIza[0-9A-Za-z_-]{35}|gh[pousr]_[A-Za-z0-9_]{20,}|github_pat_[A-Za-z0-9_]{20,})',
       replacement: '[REDACTED:API_KEY]',
       description: 'Masks live API keys, Google keys, and GitHub PATs before storage.',
       isBuiltIn: true,
@@ -550,11 +550,16 @@ function createInitialStore(): CloudStore {
       provider: 'GITHUB',
       status: 'CONNECTED',
       configured: true,
-      maskedCredential: 'ghp_••••••••••••demo',
-      accountInfo: { login: 'handoveriq-bot', scope: 'public_repo' },
+      maskedCredential: 'git_••••••••••••p8CJ',
+      accountInfo: {
+        login: 'Anuragkhobragade',
+        name: 'Anurag',
+        htmlUrl: 'https://github.com/Anuragkhobragade',
+        scopes: 'fine-grained-pat (repo:read)',
+      },
       lastVerifiedAt: now,
       errorMessage: null,
-      requiredEnvVar: 'GITHUB_TOKEN',
+      requiredEnvVar: 'GITHUB_PAT',
       updatedBy: 'demo-admin-1',
       updatedAt: now,
     },
@@ -1199,35 +1204,193 @@ export async function handleApiFallback<T>(
     const handoverId = ghMatch[1];
     const handover = store.handovers.find((h) => h.id === handoverId);
     if (!handover) throw new Error('Handover not found');
-    const repo = String(body.repoFullName || handover.githubRepo || 'owner/repo');
-    const sampleText = `Commit on ${repo}: Implemented strict CSRF verification, rotated OAuth callback URLs, and documented rollback procedure for Redis session store.`;
-    const redaction = applyRedaction(sampleText, store.redactionRules);
-    const now = nowIso();
-    const source: SourceDocument = {
-      id: genId('src'),
-      handoverId,
-      projectId: handover.projectId,
-      type: 'GITHUB_COMMIT',
-      title: `${repo} recent commits`,
-      url: `https://github.com/${repo}`,
-      author: actor.name,
-      timestamp: now,
-      redactedText: redaction.redactedText,
-      redactionSummary: {
-        totalRedactions: redaction.totalRedactions,
-        categories: redaction.categories,
-        rulesMatched: redaction.rulesMatched,
-      },
-      chunks: [{ chunkId: 'gh-1', text: redaction.redactedText }],
-      metadata: { repoFullName: repo },
-      createdAt: now,
+    const cleanedRepo = String(body.repoFullName || handover.githubRepo || 'Anuragkhobragade/Phoenix')
+      .trim()
+      .replace(/^https?:\/\/github\.com\//i, '')
+      .replace(/\.git$/i, '')
+      .replace(/\/+$/, '');
+
+    if (!/^[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+$/.test(cleanedRepo)) {
+      throw new Error(`Invalid GitHub repository identifier "${cleanedRepo}". Expected "owner/repo".`);
+    }
+
+    const ghHeaders: Record<string, string> = {
+      Accept: 'application/vnd.github+json',
     };
-    store.sources.push(source);
+
+    const repoResp = await fetch(`https://api.github.com/repos/${cleanedRepo}`, {
+      headers: ghHeaders,
+      signal: AbortSignal.timeout(8000),
+    });
+    if (!repoResp.ok) {
+      throw new Error(`GitHub API Error (${repoResp.status}) for ${cleanedRepo}: Repository not found or inaccessible.`);
+    }
+    const repoData: any = await repoResp.json();
+    const now = nowIso();
+    const createdSources: SourceDocument[] = [];
+    let totalRedactions = 0;
+
+    const addIngestedSource = (
+      type: SourceDocument['type'],
+      title: string,
+      url: string,
+      author: string,
+      timestamp: string,
+      rawText: string,
+      metadata: Record<string, any>
+    ) => {
+      const redaction = applyRedaction(rawText, store.redactionRules);
+      totalRedactions += redaction.totalRedactions;
+      const src: SourceDocument = {
+        id: genId('src_gh'),
+        handoverId,
+        projectId: handover.projectId,
+        type,
+        title,
+        url,
+        author,
+        timestamp,
+        redactedText: redaction.redactedText,
+        redactionSummary: {
+          totalRedactions: redaction.totalRedactions,
+          categories: redaction.categories,
+          rulesMatched: redaction.rulesMatched,
+        },
+        chunks: redaction.redactedText
+          .split(/\r?\n/)
+          .filter((l) => l.trim().length > 0)
+          .slice(0, 12)
+          .map((line, i) => ({ chunkId: `gh-${i + 1}`, text: line })),
+        metadata,
+        createdAt: now,
+      };
+      store.sources.push(src);
+      createdSources.push(src);
+    };
+
+    // 1. Repo Overview & Contributors
+    addIngestedSource(
+      'FILE_TXT',
+      `Repository Overview: ${cleanedRepo}`,
+      repoData.html_url || `https://github.com/${cleanedRepo}`,
+      repoData.owner?.login || cleanedRepo.split('/')[0],
+      repoData.updated_at || now,
+      `GitHub Repository: ${cleanedRepo}\nDescription: ${repoData.description || 'N/A'}\nLanguage: ${repoData.language || 'Multi-language'}\nDefault Branch: ${repoData.default_branch || 'main'}\nOpen Issues: ${repoData.open_issues_count ?? 0}`,
+      { repoFullName: cleanedRepo, defaultBranch: repoData.default_branch || 'main' }
+    );
+
+    // 2. Commits, PRs, Issues, Branches, README in parallel
+    const [commitsRes, pullsRes, issuesRes, branchesRes, readmeRes] = await Promise.allSettled([
+      fetch(`https://api.github.com/repos/${cleanedRepo}/commits?per_page=10`, { headers: ghHeaders }).then((r) => r.ok ? r.json() : []),
+      fetch(`https://api.github.com/repos/${cleanedRepo}/pulls?state=all&per_page=6`, { headers: ghHeaders }).then((r) => r.ok ? r.json() : []),
+      fetch(`https://api.github.com/repos/${cleanedRepo}/issues?state=all&per_page=6`, { headers: ghHeaders }).then((r) => r.ok ? r.json() : []),
+      fetch(`https://api.github.com/repos/${cleanedRepo}/branches?per_page=10`, { headers: ghHeaders }).then((r) => r.ok ? r.json() : []),
+      fetch(`https://api.github.com/repos/${cleanedRepo}/readme`, { headers: ghHeaders }).then((r) => r.ok ? r.json() : null),
+    ]);
+
+    if (readmeRes.status === 'fulfilled' && readmeRes.value?.content) {
+      const readmeText = decodeBase64Utf8(String(readmeRes.value.content)).slice(0, 4000);
+      addIngestedSource(
+        'FILE_TXT',
+        `README (${readmeRes.value.name || 'README.md'})`,
+        readmeRes.value.html_url || `https://github.com/${cleanedRepo}#readme`,
+        repoData.owner?.login || 'Author',
+        now,
+        `README for ${cleanedRepo}:\n${readmeText}`,
+        { repoFullName: cleanedRepo, path: 'README.md' }
+      );
+    }
+
+    if (commitsRes.status === 'fulfilled' && Array.isArray(commitsRes.value)) {
+      for (const c of commitsRes.value.slice(0, 8)) {
+        const sha = String(c.sha || '').slice(0, 7);
+        const msg = c.commit?.message || 'Commit';
+        const author = c.commit?.author?.name || c.author?.login || 'Author';
+        addIngestedSource(
+          'GITHUB_COMMIT',
+          `Commit ${sha}: ${msg.split('\n')[0].slice(0, 80)}`,
+          c.html_url || `https://github.com/${cleanedRepo}/commit/${c.sha}`,
+          author,
+          c.commit?.author?.date || now,
+          `GitHub Commit ${c.sha} in ${cleanedRepo}\nAuthor: ${author}\nMessage:\n${msg}`,
+          { repoFullName: cleanedRepo, sha: c.sha }
+        );
+      }
+    }
+
+    if (pullsRes.status === 'fulfilled' && Array.isArray(pullsRes.value)) {
+      for (const pr of pullsRes.value.slice(0, 5)) {
+        addIngestedSource(
+          'GITHUB_PR',
+          `PR #${pr.number}: ${pr.title}`,
+          pr.html_url || `https://github.com/${cleanedRepo}/pull/${pr.number}`,
+          pr.user?.login || 'Author',
+          pr.updated_at || now,
+          `GitHub PR #${pr.number} in ${cleanedRepo}: ${pr.title}\n${pr.body || ''}`,
+          { repoFullName: cleanedRepo, prNumber: pr.number }
+        );
+      }
+    }
+
+    if (issuesRes.status === 'fulfilled' && Array.isArray(issuesRes.value)) {
+      for (const iss of issuesRes.value.filter((i: any) => !i.pull_request).slice(0, 5)) {
+        addIngestedSource(
+          'GITHUB_ISSUE',
+          `Issue #${iss.number}: ${iss.title}`,
+          iss.html_url || `https://github.com/${cleanedRepo}/issues/${iss.number}`,
+          iss.user?.login || 'Author',
+          iss.updated_at || now,
+          `GitHub Issue #${iss.number} in ${cleanedRepo}: ${iss.title}\n${iss.body || ''}`,
+          { repoFullName: cleanedRepo, issueNumber: iss.number }
+        );
+      }
+    }
+
+    if (branchesRes.status === 'fulfilled' && Array.isArray(branchesRes.value) && branchesRes.value.length > 0) {
+      const branchLines = branchesRes.value.map((b: any) => `- ${b.name} (${String(b.commit?.sha || '').slice(0, 7)})`).join('\n');
+      addIngestedSource(
+        'GITHUB_BRANCH',
+        `Branches (${branchesRes.value.length} in ${cleanedRepo})`,
+        `https://github.com/${cleanedRepo}/branches`,
+        repoData.owner?.login || 'Owner',
+        now,
+        `Branches in ${cleanedRepo}:\n${branchLines}`,
+        { repoFullName: cleanedRepo }
+      );
+    }
+
+    handover.githubRepo = cleanedRepo;
+    handover.status = 'INGESTING';
+    handover.updatedAt = now;
+    const project = store.projects.find((p) => p.id === handover.projectId);
+    if (project) {
+      project.connectedSources = project.connectedSources || [];
+      if (!project.connectedSources.some((cs) => cs.type === 'GITHUB' && cs.repoFullName === cleanedRepo)) {
+        project.connectedSources.push({
+          type: 'GITHUB',
+          repoFullName: cleanedRepo,
+          branch: repoData.default_branch || 'main',
+          verifiedAt: now,
+        });
+      }
+    }
+    store.auditLogs.unshift({
+      id: genId('log'),
+      userId: actor.uid,
+      userName: actor.name,
+      userRole: actor.role,
+      projectId: handover.projectId,
+      action: 'GITHUB_IMPORT',
+      target: `GitHub Import: ${cleanedRepo} (${createdSources.length} sources)`,
+      targetId: handover.id,
+      details: { repoFullName: cleanedRepo, importedCount: createdSources.length, totalRedactions },
+      timestamp: now,
+    });
     saveStore(store);
     return {
-      importedCount: 1,
-      totalRedactions: redaction.totalRedactions,
-      sources: [source],
+      importedCount: createdSources.length,
+      totalRedactions,
+      sources: createdSources,
     } as T;
   }
 
@@ -1820,7 +1983,36 @@ export async function handleApiFallback<T>(
     return { logged: true } as T;
   }
 
-  // INTEGRATIONS
+  // INTEGRATIONS & GITHUB REPOS
+  if (path === '/api/github/repos' && method === 'GET') {
+    try {
+      const [u1, u2] = await Promise.allSettled([
+        fetch('https://api.github.com/users/Anuragkhobragade/repos?per_page=30&sort=updated').then((r) => r.ok ? r.json() : []),
+        fetch('https://api.github.com/users/tejasdeshpande0517-ux/repos?per_page=20&sort=updated').then((r) => r.ok ? r.json() : []),
+      ]);
+      const rawRepos = [
+        ...(u1.status === 'fulfilled' && Array.isArray(u1.value) ? u1.value : []),
+        ...(u2.status === 'fulfilled' && Array.isArray(u2.value) ? u2.value : []),
+      ];
+      const repos = rawRepos.map((r: any) => ({
+        id: r.id,
+        name: r.name,
+        fullName: r.full_name,
+        owner: r.owner?.login || '',
+        private: Boolean(r.private),
+        defaultBranch: r.default_branch || 'main',
+        description: r.description || '',
+        language: r.language || null,
+        updatedAt: r.updated_at || nowIso(),
+        htmlUrl: r.html_url || `https://github.com/${r.full_name}`,
+      }));
+      const ghInt = store.integrations.find((i) => i.id === 'github');
+      return { account: ghInt?.accountInfo || null, repos } as T;
+    } catch {
+      return { account: null, repos: [] } as T;
+    }
+  }
+
   if (path === '/api/integrations' && method === 'GET') {
     return { integrations: store.integrations } as T;
   }
@@ -1831,9 +2023,44 @@ export async function handleApiFallback<T>(
     const integration = store.integrations.find((i) => i.id === id);
     if (!integration) throw new Error('Integration not found');
     const cred = String(body.credential || '').trim();
-    integration.configured = cred.length > 0;
-    integration.status = cred.length > 0 ? 'CONNECTED' : 'DISCONNECTED';
-    integration.maskedCredential = cred ? `${cred.slice(0, 4)}••••••••` : '';
+    if (!cred) {
+      integration.configured = false;
+      integration.status = 'DISCONNECTED';
+      integration.maskedCredential = '';
+      integration.accountInfo = null;
+      integration.errorMessage = 'Credential cleared by Administrator.';
+    } else if (id === 'github') {
+      const checkResp = await fetch('https://api.github.com/user', {
+        headers: {
+          Accept: 'application/vnd.github+json',
+          Authorization: `Bearer ${cred}`,
+        },
+      });
+      if (checkResp.ok) {
+        const u: any = await checkResp.json();
+        integration.configured = true;
+        integration.status = 'CONNECTED';
+        integration.maskedCredential = `${cred.slice(0, 4)}••••••••${cred.slice(-4)}`;
+        integration.accountInfo = {
+          login: u.login,
+          name: u.name || u.login,
+          htmlUrl: u.html_url,
+          scopes: checkResp.headers.get('x-oauth-scopes') || 'fine-grained-pat',
+        };
+        integration.errorMessage = null;
+      } else {
+        integration.configured = false;
+        integration.status = 'ERROR';
+        integration.maskedCredential = '';
+        integration.accountInfo = null;
+        integration.errorMessage = `GitHub authentication failed (${checkResp.status}): Invalid, expired, or revoked PAT.`;
+      }
+    } else {
+      integration.configured = true;
+      integration.status = 'CONNECTED';
+      integration.maskedCredential = `${cred.slice(0, 4)}••••••••`;
+      integration.errorMessage = null;
+    }
     integration.lastVerifiedAt = nowIso();
     integration.updatedBy = actor.uid;
     integration.updatedAt = nowIso();

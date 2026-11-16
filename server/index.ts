@@ -29,7 +29,11 @@ import {
   verifyGeminiCredential,
   verifySingleCitation,
 } from './services/aiEngine.ts';
-import { fetchGitHubRepositoryData, verifyGitHubCredential } from './services/github.ts';
+import {
+  fetchGitHubRepositoryData,
+  listAccessibleGitHubRepositories,
+  verifyGitHubCredential,
+} from './services/github.ts';
 import { validateAndParseFile } from './services/parser.ts';
 import { generateServerHandoverPDF } from './services/pdfExport.ts';
 import { redactSensitiveContent } from './services/redaction.ts';
@@ -298,18 +302,25 @@ function canUserAccessHandover(user: UserProfile, handover: Handover): boolean {
 // ============================================================================
 async function verifyStartupIntegrations(): Promise<void> {
   const { serverSecrets, integrations } = firestoreStore.state;
-  if (serverSecrets.githubToken) {
-    const ghCheck = await verifyGitHubCredential(serverSecrets.githubToken);
+  const ghToken =
+    serverSecrets.githubToken || process.env.GITHUB_PAT || process.env.GITHUB_TOKEN || '';
+  if (ghToken) {
+    serverSecrets.githubToken = ghToken;
+    const ghCheck = await verifyGitHubCredential(ghToken);
     integrations.github.status = ghCheck.connected ? 'CONNECTED' : 'ERROR';
     integrations.github.configured = ghCheck.connected;
+    integrations.github.maskedCredential = ghCheck.connected ? maskSecret(ghToken) : '';
     integrations.github.accountInfo = ghCheck.accountInfo;
     integrations.github.errorMessage = ghCheck.errorMessage;
     integrations.github.lastVerifiedAt = new Date().toISOString();
   }
-  if (serverSecrets.geminiApiKey) {
-    const gemCheck = await verifyGeminiCredential(serverSecrets.geminiApiKey);
+  const gemKey = serverSecrets.geminiApiKey || process.env.GEMINI_API_KEY || '';
+  if (gemKey) {
+    serverSecrets.geminiApiKey = gemKey;
+    const gemCheck = await verifyGeminiCredential(gemKey);
     integrations.gemini.status = gemCheck.connected ? 'CONNECTED' : 'ERROR';
     integrations.gemini.configured = gemCheck.connected;
+    integrations.gemini.maskedCredential = gemCheck.connected ? maskSecret(gemKey) : '';
     integrations.gemini.accountInfo = gemCheck.accountInfo;
     integrations.gemini.errorMessage = gemCheck.errorMessage;
     integrations.gemini.lastVerifiedAt = new Date().toISOString();
@@ -1513,7 +1524,10 @@ app.post(
       }
 
       const token =
-        firestoreStore.state.serverSecrets.githubToken || process.env.GITHUB_TOKEN || '';
+        firestoreStore.state.serverSecrets.githubToken ||
+        process.env.GITHUB_PAT ||
+        process.env.GITHUB_TOKEN ||
+        '';
 
       const rawItems = await fetchGitHubRepositoryData({
         repoFullName,
@@ -1574,6 +1588,21 @@ app.post(
       }
 
       handover.githubRepo = repoFullName;
+      if (project) {
+        project.connectedSources = project.connectedSources || [];
+        if (
+          !project.connectedSources.some(
+            (cs) => cs.type === 'GITHUB' && cs.repoFullName === repoFullName
+          )
+        ) {
+          project.connectedSources.push({
+            type: 'GITHUB',
+            repoFullName,
+            branch: handover.githubBranch || 'main',
+            verifiedAt: new Date().toISOString(),
+          });
+        }
+      }
       if (handover.status === 'DRAFT') {
         handover.status = 'INGESTING';
       }
@@ -2696,9 +2725,47 @@ app.get('/api/integrations', requireAuth, (req: AuthenticatedRequest, res: Respo
     provider: i.provider,
     status: i.status,
     configured: i.configured,
+    accountInfo: i.accountInfo,
     lastVerifiedAt: i.lastVerifiedAt,
   }));
   res.json({ integrations: safeIntegrations });
+});
+
+app.get('/api/github/repos', requireAuth, async (req: AuthenticatedRequest, res: Response) => {
+  try {
+    const token =
+      firestoreStore.state.serverSecrets.githubToken ||
+      process.env.GITHUB_PAT ||
+      process.env.GITHUB_TOKEN ||
+      '';
+    if (!token) {
+      res.status(400).json({
+        error: 'GitHub PAT is not configured on the server.',
+        repos: [],
+      });
+      return;
+    }
+
+    const repos = await listAccessibleGitHubRepositories(token);
+    const account = firestoreStore.state.integrations.github?.accountInfo || null;
+
+    firestoreStore.appendAuditLog({
+      userId: req.user!.uid,
+      userName: req.user!.name,
+      userRole: req.user!.role,
+      action: 'GITHUB_REPO_LIST',
+      target: `Listed ${repos.length} accessible GitHub repositories`,
+      targetId: 'github',
+      details: { count: repos.length },
+    });
+
+    res.json({ account, repos });
+  } catch (err: any) {
+    res.status(400).json({
+      error: err.message || 'Failed to list GitHub repositories.',
+      repos: [],
+    });
+  }
 });
 
 app.post(
