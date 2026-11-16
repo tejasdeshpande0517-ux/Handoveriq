@@ -11,7 +11,8 @@
     "build": "tsc -b && vite build",
     "preview": "vite preview",
     "test:e2e": "node tests/e2e-verification.mjs",
-    "test:accuracy": "node tests/accuracy-security-verification.mjs"
+    "test:accuracy": "node tests/accuracy-security-verification.mjs",
+    "test:github": "node tests/github-pat-verification.mjs"
   },
   "dependencies": {
     "@google/generative-ai": "^0.24.0",

@@ -2390,6 +2390,80 @@ app.post(
   }
 );
 
+app.post(
+  '/api/handovers/:id/acknowledge',
+  requireAuth,
+  (req: AuthenticatedRequest, res: Response) => {
+    const user = req.user!;
+    const handover = firestoreStore.state.handovers[String(req.params.id)];
+    if (!handover) {
+      res.status(404).json({ error: 'Handover not found.' });
+      return;
+    }
+    if (!canUserAccessHandover(user, handover) || handover.status !== 'PUBLISHED') {
+      res.status(403).json({
+        error: 'Access Denied: Only authorized participants can acknowledge a published handover.',
+      });
+      return;
+    }
+
+    const approvedItems = Object.values(firestoreStore.state.reportItems).filter(
+      (i) => i.handoverId === handover.id && i.reviewStatus === 'APPROVED'
+    );
+    const validItemIds = new Set(approvedItems.map((i) => i.id));
+    const completedItemIds = Array.isArray(req.body?.completedItemIds)
+      ? req.body.completedItemIds.filter((id: any) => validItemIds.has(String(id)))
+      : handover.successorAcknowledgment?.completedItemIds || [];
+    const completionPercent =
+      approvedItems.length > 0
+        ? Math.round((completedItemIds.length / approvedItems.length) * 100)
+        : 100;
+    const feedback = sanitizeText(
+      req.body?.feedback ?? handover.successorAcknowledgment?.feedback ?? '',
+      1000
+    );
+    const now = new Date().toISOString();
+
+    handover.successorAcknowledgment = {
+      acknowledged: true,
+      acknowledgedBy: user.uid,
+      acknowledgedByName: user.name,
+      acknowledgedAt: now,
+      feedback,
+      completedItemIds,
+      completionPercent,
+    };
+    handover.updatedAt = now;
+    firestoreStore.save();
+
+    firestoreStore.appendAuditLog({
+      userId: user.uid,
+      userName: user.name,
+      userRole: user.role,
+      action: 'SUCCESSOR_ACKNOWLEDGE',
+      target: `Successor Acknowledged Handover: ${handover.title}`,
+      targetId: handover.id,
+      details: {
+        completionPercent,
+        completedCount: completedItemIds.length,
+        totalApprovedItems: approvedItems.length,
+        feedback,
+      },
+    });
+
+    if (handover.createdBy) {
+      firestoreStore.createNotification({
+        userId: handover.createdBy,
+        title: 'Successor Acknowledged Handover',
+        message: `${user.name} acknowledged receipt of "${handover.title}" (${completionPercent}% items reviewed).`,
+        link: `/handovers/${handover.id}`,
+      });
+    }
+
+    res.json({ handover });
+  }
+);
+
 // ============================================================================
 // 10. GROUNDED AI Q&A ASSISTANT (STRICTLY APPROVED CONTENT & SOURCES ONLY)
 // ============================================================================

@@ -301,7 +301,7 @@ function createInitialSeedDatabase(): FirestoreDatabaseSchema {
       connectedSources: [
         {
           type: 'GITHUB',
-          repo: 'nexus-org/risk-scoring-flink',
+          repoFullName: 'nexus-org/risk-scoring-flink',
           verifiedAt: earlier3,
         },
       ],

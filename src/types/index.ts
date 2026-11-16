@@ -119,6 +119,15 @@ export interface Handover {
     versionLocked?: boolean;
   };
   versionHistory?: HandoverVersionEntry[];
+  successorAcknowledgment?: {
+    acknowledged: boolean;
+    acknowledgedBy: string;
+    acknowledgedByName: string;
+    acknowledgedAt: string;
+    feedback?: string;
+    completedItemIds?: string[];
+    completionPercent?: number;
+  };
   analysisEngineUsed?: 'GEMINI_API' | 'EXTRACTIVE_GROUNDED' | null;
   createdBy: string;
   approvedBy: string | null;

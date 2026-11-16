@@ -75,6 +75,11 @@ export const SuccessorPortalPage: React.FC = () => {
   const [qaHistory, setQaHistory] = useState<QAResponse[]>([]);
   const [askingQA, setAskingQA] = useState(false);
 
+  // Successor Acknowledgment & Onboarding Progress State
+  const [completedItemIds, setCompletedItemIds] = useState<string[]>([]);
+  const [ackFeedback, setAckFeedback] = useState('');
+  const [acknowledging, setAcknowledging] = useState(false);
+
   useEffect(() => {
     const loadInitial = async () => {
       try {
@@ -115,6 +120,10 @@ export const SuccessorPortalPage: React.FC = () => {
         ]);
         setHandoverDetail(res);
         setQaHistory(qaRes.history || []);
+        setCompletedItemIds(
+          res.handover.successorAcknowledgment?.completedItemIds || []
+        );
+        setAckFeedback(res.handover.successorAcknowledgment?.feedback || '');
       } catch (err: any) {
         showToast('error', 'Access Denied or Not Found', err.message);
       }
@@ -135,6 +144,30 @@ export const SuccessorPortalPage: React.FC = () => {
       showToast('error', 'Q&A Query Failed', err.message);
     } finally {
       setAskingQA(false);
+    }
+  };
+
+  const handleAcknowledge = async (nextCompletedIds?: string[]) => {
+    if (!selectedHandoverId || !handoverDetail) return;
+    const idsToSave = nextCompletedIds ?? completedItemIds;
+    try {
+      setAcknowledging(true);
+      const res = await api.handovers.acknowledge(selectedHandoverId, {
+        feedback: ackFeedback,
+        completedItemIds: idsToSave,
+      });
+      setHandoverDetail((prev) =>
+        prev ? { ...prev, handover: res.handover } : prev
+      );
+      showToast(
+        'success',
+        'Handover Acknowledged',
+        'Receipt and onboarding progress saved to governance record.'
+      );
+    } catch (err: any) {
+      showToast('error', 'Failed to save acknowledgment', err.message);
+    } finally {
+      setAcknowledging(false);
     }
   };
 
@@ -214,21 +247,43 @@ export const SuccessorPortalPage: React.FC = () => {
           </select>
 
           {handoverDetail && (
-            <button
-              onClick={() =>
-                generateAndDownloadHandoverPDF({
-                  handover: handoverDetail.handover,
-                  project: handoverDetail.project,
-                  reportItems: approvedItems,
-                  sources: handoverDetail.sources,
-                  usersMap,
-                })
-              }
-              className="inline-flex items-center gap-1.5 px-4 py-2 rounded-lg text-xs font-semibold text-white bg-teal-700 hover:bg-teal-800 shadow-2xs"
-            >
-              <Download className="w-4 h-4" />
-              Download Official PDF Report
-            </button>
+            <>
+              <button
+                type="button"
+                disabled={acknowledging}
+                onClick={() => handleAcknowledge(approvedItems.map((i) => i.id))}
+                className={`inline-flex items-center gap-1.5 px-4 py-2 rounded-lg text-xs font-semibold border transition-colors ${
+                  handoverDetail.handover.successorAcknowledgment?.acknowledged
+                    ? 'bg-emerald-50 text-emerald-800 border-emerald-200'
+                    : 'bg-slate-900 text-white border-slate-900 hover:bg-slate-800'
+                }`}
+              >
+                <CheckCircle2 className="w-4 h-4" />
+                {handoverDetail.handover.successorAcknowledgment?.acknowledged
+                  ? `Acknowledged (${
+                      handoverDetail.handover.successorAcknowledgment
+                        .completionPercent ?? 100
+                    }%)`
+                  : acknowledging
+                  ? 'Saving...'
+                  : 'Acknowledge Handover Receipt'}
+              </button>
+              <button
+                onClick={() =>
+                  generateAndDownloadHandoverPDF({
+                    handover: handoverDetail.handover,
+                    project: handoverDetail.project,
+                    reportItems: approvedItems,
+                    sources: handoverDetail.sources,
+                    usersMap,
+                  })
+                }
+                className="inline-flex items-center gap-1.5 px-4 py-2 rounded-lg text-xs font-semibold text-white bg-teal-700 hover:bg-teal-800 shadow-2xs"
+              >
+                <Download className="w-4 h-4" />
+                Download Official PDF Report
+              </button>
+            </>
           )}
         </div>
       </div>

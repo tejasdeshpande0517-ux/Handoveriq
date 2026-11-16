@@ -1507,6 +1507,47 @@ export async function handleApiFallback<T>(
     return { handover } as T;
   }
 
+  const ackMatch = path.match(/^\/api\/handovers\/([^/]+)\/acknowledge$/);
+  if (ackMatch && method === 'POST') {
+    const handover = store.handovers.find((h) => h.id === ackMatch[1]);
+    if (!handover) throw new Error('Handover not found');
+    const approvedItems = store.reportItems.filter(
+      (i) => i.handoverId === handover.id && i.reviewStatus === 'APPROVED'
+    );
+    const completedItemIds = Array.isArray(body.completedItemIds)
+      ? body.completedItemIds
+      : handover.successorAcknowledgment?.completedItemIds || [];
+    const completionPercent =
+      approvedItems.length > 0
+        ? Math.round((completedItemIds.length / approvedItems.length) * 100)
+        : 100;
+    const now = nowIso();
+    handover.successorAcknowledgment = {
+      acknowledged: true,
+      acknowledgedBy: actor.uid,
+      acknowledgedByName: actor.name,
+      acknowledgedAt: now,
+      feedback: String(body.feedback ?? handover.successorAcknowledgment?.feedback ?? ''),
+      completedItemIds,
+      completionPercent,
+    };
+    handover.updatedAt = now;
+    store.auditLogs.unshift({
+      id: genId('log'),
+      userId: actor.uid,
+      userName: actor.name,
+      userRole: actor.role,
+      projectId: handover.projectId,
+      action: 'SUCCESSOR_ACKNOWLEDGE',
+      target: `Successor Acknowledged: ${handover.title}`,
+      targetId: handover.id,
+      details: { completionPercent },
+      timestamp: now,
+    });
+    saveStore(store);
+    return { handover } as T;
+  }
+
   const delSrcMatch = path.match(/^\/api\/handovers\/([^/]+)\/sources\/([^/]+)$/);
   if (delSrcMatch && method === 'DELETE') {
     store.sources = store.sources.filter((s) => s.id !== delSrcMatch[2]);

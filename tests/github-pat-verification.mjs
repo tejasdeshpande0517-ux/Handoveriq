@@ -217,7 +217,19 @@ async function run() {
       `[PASS] 7. AI Q&A Using Ingested GitHub Sources: Grounded answer with ${qaRes.data.qaResult.citations.length} citation(s)`
     );
 
-    // 7. Token Secrecy Verification across API responses, Firestore file, PDF, and dist/
+    // 7b. Successor Acknowledgment & Onboarding Completion Tracking
+    const ackRes = await successor.request('POST', `/api/handovers/${handoverId}/acknowledge`, {
+      feedback: 'Reviewed all ingested GitHub sources and handover items.',
+      completedItemIds: anaRes.data.reportItems.map((i) => i.id),
+    });
+    assert.equal(ackRes.status, 200);
+    assert.equal(ackRes.data.handover.successorAcknowledgment?.acknowledged, true);
+    assert.equal(ackRes.data.handover.successorAcknowledgment?.completionPercent, 100);
+    console.log(
+      '[PASS] 8. Successor Acknowledgment & Completion Tracking: Verified 100% completion persisted'
+    );
+
+    // 9. Token Secrecy Verification across API responses, Firestore file, PDF, and dist/
     const intRes = await leader.request('GET', '/api/integrations');
     const pdfRes = await successor.request('GET', `/api/handovers/${handoverId}/pdf`);
     const diskContent = fs.readFileSync(DB_PATH, 'utf-8');

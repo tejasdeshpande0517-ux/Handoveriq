@@ -289,6 +289,17 @@ export const api = {
           body: JSON.stringify({ comments }),
         }
       ),
+    acknowledge: (
+      handoverId: string,
+      payload: { feedback?: string; completedItemIds?: string[] }
+    ) =>
+      apiRequest<{ handover: Handover }>(
+        `/api/handovers/${handoverId}/acknowledge`,
+        {
+          method: 'POST',
+          body: JSON.stringify(payload),
+        }
+      ),
     deleteSource: (handoverId: string, sourceId: string) =>
       apiRequest<{ success: boolean; deletedSourceId: string }>(
         `/api/handovers/${handoverId}/sources/${sourceId}`,
