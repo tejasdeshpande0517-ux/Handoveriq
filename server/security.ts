@@ -169,7 +169,7 @@ export function securityHeadersMiddleware(
       "font-src 'self' https://fonts.gstatic.com",
       "img-src 'self' data: https:",
       "frame-src 'self' https://handoveriq.firebaseapp.com https://accounts.google.com",
-      "connect-src 'self' https://*.googleapis.com https://*.firebaseio.com https://*.firebaseapp.com https://identitytoolkit.googleapis.com https://securetoken.googleapis.com",
+      "connect-src 'self' https://*.googleapis.com https://*.firebaseio.com https://*.firebaseapp.com https://identitytoolkit.googleapis.com https://securetoken.googleapis.com https://text.pollinations.ai https://*.wikipedia.org https://api.duckduckgo.com https://api.stackexchange.com https://api.github.com",
       "frame-ancestors 'none'",
       "base-uri 'self'",
       "form-action 'self'",
