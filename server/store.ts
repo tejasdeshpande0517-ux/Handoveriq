@@ -11,6 +11,7 @@ import type {
   IntegrationConfig,
   Project,
   ProjectMember,
+  QAResponse,
   RedactionRule,
   ReportItem,
   SourceDocument,
@@ -80,6 +81,7 @@ export interface FirestoreDatabaseSchema {
   integrations: Record<string, IntegrationConfig>;
   redactionRules: Record<string, RedactionRule>;
   notifications: Record<string, AppNotification>;
+  qaHistory?: Record<string, QAResponse[]>;
   serverSecrets: ServerSecrets;
 }
 
@@ -1322,6 +1324,8 @@ function normalizeDatabaseSchema(db: FirestoreDatabaseSchema): FirestoreDatabase
   for (const [id, s] of Object.entries(db.sources || {})) {
     db.uploadedSources[id] = s;
   }
+
+  db.qaHistory = db.qaHistory || {};
 
   return db;
 }

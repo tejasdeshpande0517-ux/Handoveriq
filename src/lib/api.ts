@@ -1,9 +1,12 @@
 import type {
+  ApprovalRecord,
   AppNotification,
   AuditLog,
   DashboardStats,
   DepartingReviewStatus,
   Handover,
+  HandoverReport,
+  HandoverVersionEntry,
   IntegrationConfig,
   Project,
   QAResponse,
@@ -298,6 +301,38 @@ export const api = {
         method: 'POST',
         body: JSON.stringify({ question }),
       }),
+    getQAHistory: (handoverId: string) =>
+      apiRequest<{ history: QAResponse[] }>(
+        `/api/handovers/${handoverId}/qa-history`
+      ),
+    getVersions: (handoverId: string) =>
+      apiRequest<{
+        versions: HandoverReport[];
+        approvals: ApprovalRecord[];
+        versionHistory: HandoverVersionEntry[];
+      }>(`/api/handovers/${handoverId}/versions`),
+    downloadServerPdf: async (handoverId: string): Promise<Blob | null> => {
+      try {
+        const res = await fetch(`/api/handovers/${handoverId}/pdf`, {
+          credentials: 'include',
+        });
+        if (res.status === 404 || res.status === 502 || res.status === 503) {
+          return null;
+        }
+        if (!res.ok) {
+          const errData = await res.json().catch(() => ({}));
+          throw new Error(errData.error || `PDF download failed (HTTP ${res.status})`);
+        }
+        const contentType = res.headers.get('content-type') || '';
+        if (!contentType.includes('application/pdf')) {
+          return null;
+        }
+        return await res.blob();
+      } catch (err) {
+        if (err instanceof TypeError) return null;
+        throw err;
+      }
+    },
     logPdfDownload: (handoverId: string) =>
       apiRequest<{ logged: boolean }>(`/api/handovers/${handoverId}/pdf-log`, {
         method: 'POST',

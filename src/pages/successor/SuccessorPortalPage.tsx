@@ -109,8 +109,12 @@ export const SuccessorPortalPage: React.FC = () => {
         return;
       }
       try {
-        const res = await api.handovers.get(selectedHandoverId);
+        const [res, qaRes] = await Promise.all([
+          api.handovers.get(selectedHandoverId),
+          api.handovers.getQAHistory(selectedHandoverId).catch(() => ({ history: [] })),
+        ]);
         setHandoverDetail(res);
+        setQaHistory(qaRes.history || []);
       } catch (err: any) {
         showToast('error', 'Access Denied or Not Found', err.message);
       }
@@ -271,7 +275,7 @@ export const SuccessorPortalPage: React.FC = () => {
             </div>
             <div>
               <span className="text-slate-400 uppercase font-semibold block">
-                Team Leader Verification
+                Team Leader Verification • v{handoverDetail.handover.approvalSummary?.version || 1}
               </span>
               <p className="text-sm font-bold text-emerald-700 mt-0.5 flex items-center gap-1">
                 <CheckCircle2 className="w-4 h-4" />
@@ -280,6 +284,9 @@ export const SuccessorPortalPage: React.FC = () => {
                   'Team Leader'}
               </p>
               <p className="text-slate-500 mt-0.5">
+                {handoverDetail.handover.approvalSummary?.approvedAt
+                  ? `Approved ${new Date(handoverDetail.handover.approvalSummary.approvedAt).toLocaleDateString()} • `
+                  : ''}
                 {handoverDetail.handover.approvalSummary?.leaderComments}
               </p>
             </div>
@@ -374,20 +381,33 @@ export const SuccessorPortalPage: React.FC = () => {
                                 <div className="flex flex-wrap gap-1.5">
                                   {item.sourceIds.map((sid) => {
                                     const src = sourcesMap[sid];
+                                    const hasExternalUrl =
+                                      src?.url && /^https?:\/\//i.test(src.url);
                                     return (
-                                      <button
-                                        key={sid}
-                                        onClick={() => {
-                                          if (src) {
-                                            setInspectedSource(src);
-                                            setInspectedEvidence(item.evidence);
-                                          }
-                                        }}
-                                        className="inline-flex items-center gap-1 px-2 py-0.5 rounded text-xs font-mono font-semibold bg-teal-50 text-teal-800 hover:bg-teal-100 border border-teal-200"
-                                      >
-                                        <FileText className="w-3 h-3" />
-                                        [{sid}]
-                                      </button>
+                                      <span key={sid} className="inline-flex items-center gap-1">
+                                        <button
+                                          onClick={() => {
+                                            if (src) {
+                                              setInspectedSource(src);
+                                              setInspectedEvidence(item.evidence);
+                                            }
+                                          }}
+                                          className="inline-flex items-center gap-1 px-2 py-0.5 rounded text-xs font-mono font-semibold bg-teal-50 text-teal-800 hover:bg-teal-100 border border-teal-200"
+                                        >
+                                          <FileText className="w-3 h-3" />
+                                          [{sid}]
+                                        </button>
+                                        {hasExternalUrl && (
+                                          <a
+                                            href={src.url}
+                                            target="_blank"
+                                            rel="noopener noreferrer"
+                                            className="px-1.5 py-0.5 rounded text-[11px] font-medium text-teal-700 hover:underline bg-slate-50 border border-slate-200"
+                                          >
+                                            Open Source ↗
+                                          </a>
+                                        )}
+                                      </span>
                                     );
                                   })}
                                 </div>

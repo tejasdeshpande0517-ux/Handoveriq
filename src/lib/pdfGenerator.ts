@@ -37,8 +37,23 @@ export async function generateAndDownloadHandoverPDF(params: {
   usersMap: Record<string, UserProfile>;
 }): Promise<void> {
   const { handover, project, reportItems, sources, usersMap } = params;
+  const version = handover.approvalSummary?.version || 1;
 
-  // Record PDF download in immutable audit logs
+  // Prefer server-side PDF generation when backend is running
+  const serverBlob = await api.handovers.downloadServerPdf(handover.id);
+  if (serverBlob) {
+    const url = URL.createObjectURL(serverBlob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `HandoverIQ_Report_${handover.id}_v${version}.pdf`;
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    URL.revokeObjectURL(url);
+    return;
+  }
+
+  // Fallback for static hosting mode: record PDF download in audit logs
   try {
     await api.handovers.logPdfDownload(handover.id);
   } catch {
@@ -69,7 +84,7 @@ export async function generateAndDownloadHandoverPDF(params: {
   doc.setFont('helvetica', 'normal');
   doc.setFontSize(10);
   doc.text(
-    `Report ID: ${handover.id}   |   Status: ${handover.status}   |   Generated: ${new Date().toLocaleString()}`,
+    `Report ID: ${handover.id}   |   Version: v${version}   |   Status: ${handover.status}   |   Generated: ${new Date().toLocaleString()}`,
     margin,
     54
   );

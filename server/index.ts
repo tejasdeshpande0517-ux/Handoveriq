@@ -31,6 +31,7 @@ import {
 } from './services/aiEngine.ts';
 import { fetchGitHubRepositoryData, verifyGitHubCredential } from './services/github.ts';
 import { validateAndParseFile } from './services/parser.ts';
+import { generateServerHandoverPDF } from './services/pdfExport.ts';
 import { redactSensitiveContent } from './services/redaction.ts';
 import {
   firestoreStore,
@@ -2518,6 +2519,12 @@ app.post('/api/handovers/:id/qa', requireAuth, async (req: AuthenticatedRequest,
       },
     });
 
+    const historyKey = `${user.uid}::${handover.id}`;
+    firestoreStore.state.qaHistory = firestoreStore.state.qaHistory || {};
+    const existingHistory = firestoreStore.state.qaHistory[historyKey] || [];
+    firestoreStore.state.qaHistory[historyKey] = [qaResult, ...existingHistory].slice(0, 50);
+    firestoreStore.save();
+
     res.json({ qaResult });
   } catch (err: any) {
     console.error('[QA Error]', err);
@@ -2526,8 +2533,128 @@ app.post('/api/handovers/:id/qa', requireAuth, async (req: AuthenticatedRequest,
 });
 
 // ============================================================================
-// 11. PDF REPORT DOWNLOAD AUDIT LOGGING
+// 11. REPORT VERSION HISTORY, SERVER-SIDE PDF EXPORT & AUDIT LOGGING
 // ============================================================================
+app.get('/api/handovers/:id/qa-history', requireAuth, (req: AuthenticatedRequest, res: Response) => {
+  const user = req.user!;
+  const handover = firestoreStore.state.handovers[String(req.params.id)];
+  if (!handover) {
+    res.status(404).json({ error: 'Handover not found.' });
+    return;
+  }
+  if (!canUserAccessHandover(user, handover)) {
+    res.status(403).json({ error: 'Access Denied.' });
+    return;
+  }
+  const historyKey = `${user.uid}::${handover.id}`;
+  const history = firestoreStore.state.qaHistory?.[historyKey] || [];
+  res.json({ history });
+});
+
+app.get('/api/handovers/:id/versions', requireAuth, (req: AuthenticatedRequest, res: Response) => {
+  const user = req.user!;
+  const handover = firestoreStore.state.handovers[String(req.params.id)];
+  if (!handover) {
+    res.status(404).json({ error: 'Handover not found.' });
+    return;
+  }
+  if (!canUserAccessHandover(user, handover)) {
+    res.status(403).json({ error: 'Access Denied.' });
+    return;
+  }
+
+  let snapshots = Object.values(firestoreStore.state.handoverReports)
+    .filter((r) => r.handoverId === handover.id)
+    .sort((a, b) => b.version - a.version);
+
+  let approvals = Object.values(firestoreStore.state.approvals)
+    .filter((a) => a.handoverId === handover.id)
+    .sort((a, b) => b.version - a.version);
+
+  if (user.role === 'SUCCESSOR') {
+    snapshots = snapshots.filter((s) => s.approvalStatus === 'APPROVED').slice(0, 1);
+    approvals = approvals.filter((a) => a.status === 'APPROVED').slice(0, 1);
+  }
+
+  res.json({
+    versions: snapshots,
+    approvals,
+    versionHistory: handover.versionHistory || [],
+  });
+});
+
+app.get('/api/handovers/:id/pdf', requireAuth, (req: AuthenticatedRequest, res: Response) => {
+  try {
+    const user = req.user!;
+    const handover = firestoreStore.state.handovers[String(req.params.id)];
+    if (!handover) {
+      res.status(404).json({ error: 'Handover not found.' });
+      return;
+    }
+    if (!canUserAccessHandover(user, handover)) {
+      res.status(403).json({
+        error: 'Access Denied: You are not authorized to export this handover PDF.',
+      });
+      return;
+    }
+    if (user.role === 'SUCCESSOR' && handover.status !== 'PUBLISHED') {
+      res.status(403).json({
+        error: 'Access Denied: Successors can only export approved and published handover reports.',
+      });
+      return;
+    }
+
+    const project = firestoreStore.state.projects[handover.projectId] || null;
+    const sources = Object.values(firestoreStore.state.sources).filter(
+      (s) => s.handoverId === handover.id
+    );
+
+    // Use latest approved snapshot for published reports, or current items for leaders
+    const approvedSnapshots = Object.values(firestoreStore.state.handoverReports)
+      .filter((r) => r.handoverId === handover.id && r.approvalStatus === 'APPROVED')
+      .sort((a, b) => b.version - a.version);
+    const latestSnapshot = approvedSnapshots[0];
+
+    let reportItems = latestSnapshot
+      ? latestSnapshot.itemsSnapshot
+      : Object.values(firestoreStore.state.reportItems).filter(
+          (i) => i.handoverId === handover.id
+        );
+
+    if (user.role === 'SUCCESSOR') {
+      reportItems = reportItems.filter((i) => i.reviewStatus === 'APPROVED');
+    }
+
+    const version = latestSnapshot?.version || handover.approvalSummary?.version || 1;
+    const pdfBuffer = generateServerHandoverPDF({
+      handover,
+      project,
+      reportItems,
+      sources,
+      usersMap: firestoreStore.state.users,
+      reportVersion: version,
+    });
+
+    firestoreStore.appendAuditLog({
+      userId: user.uid,
+      userName: user.name,
+      userRole: user.role,
+      action: 'REPORT_DOWNLOAD',
+      target: `Server PDF Exported: ${handover.title} (v${version})`,
+      targetId: handover.id,
+      details: { status: handover.status, version, serverGenerated: true },
+    });
+
+    const safeFileName = `HandoverIQ_Report_${handover.id.replace(/[^a-zA-Z0-9_-]/g, '_')}_v${version}.pdf`;
+    res.setHeader('Content-Type', 'application/pdf');
+    res.setHeader('Content-Disposition', `attachment; filename="${safeFileName}"`);
+    res.send(pdfBuffer);
+  } catch (err: any) {
+    console.error('[Server PDF Export Error]', err);
+    res.status(500).json({ error: 'Failed to generate server PDF report.' });
+  }
+});
+
 app.post('/api/handovers/:id/pdf-log', requireAuth, (req: AuthenticatedRequest, res: Response) => {
   const user = req.user!;
   const handover = firestoreStore.state.handovers[String(req.params.id)];
@@ -2785,20 +2912,17 @@ app.post('/api/redaction/test', requireAuth, (req: AuthenticatedRequest, res: Re
 // ============================================================================
 // 14. AUDIT LOGS (STRICTLY APPEND-ONLY / IMMUTABLE)
 // ============================================================================
-app.get('/api/audit-logs', requireAuth, (req: AuthenticatedRequest, res: Response) => {
-  const user = req.user!;
-  const allLogs = Object.values(firestoreStore.state.auditLogs).sort(
-    (a, b) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime()
-  );
-
-  if (user.role === 'ADMIN' || user.role === 'TEAM_LEADER') {
+app.get(
+  '/api/audit-logs',
+  requireAuth,
+  requireRoles('ADMIN', 'TEAM_LEADER'),
+  (_req: AuthenticatedRequest, res: Response) => {
+    const allLogs = Object.values(firestoreStore.state.auditLogs).sort(
+      (a, b) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime()
+    );
     res.json({ logs: allLogs });
-    return;
   }
-
-  // Non-admins/non-leads can only view their own activity logs
-  res.json({ logs: allLogs.filter((l) => l.userId === user.uid) });
-});
+);
 
 // Enforce Rule 5.L: Users must not be able to modify or delete audit records!
 app.put('/api/audit-logs/:id', requireAuth, (_req: AuthenticatedRequest, res: Response) => {

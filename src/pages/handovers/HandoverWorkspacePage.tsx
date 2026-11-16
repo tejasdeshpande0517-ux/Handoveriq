@@ -36,6 +36,7 @@ import {
 } from '../../services/storageService';
 import type {
   Handover,
+  HandoverReport,
   IntegrationConfig,
   Project,
   ReportItem,
@@ -126,6 +127,8 @@ export const HandoverWorkspacePage: React.FC = () => {
     'Verified all 7 report sections and source citations. Approved for Successor access.'
   );
   const [publishing, setPublishing] = useState(false);
+  const [versionSnapshots, setVersionSnapshots] = useState<HandoverReport[]>([]);
+  const [expandedVersionId, setExpandedVersionId] = useState<string | null>(null);
 
   const loadWorkspace = async () => {
     if (!id) return;
@@ -144,6 +147,11 @@ export const HandoverWorkspacePage: React.FC = () => {
       setIntegrations(intRes.integrations);
       setGithubRepoInput(hRes.handover.githubRepo || 'octocat/Hello-World');
       setDepartingNotesInput(hRes.handover.departingMemberNotes || '');
+
+      api.handovers
+        .getVersions(id)
+        .then((vRes) => setVersionSnapshots(vRes.versions || []))
+        .catch(() => setVersionSnapshots([]));
 
       if (hRes.reportItems.length === 0) {
         setActiveTab('INGESTION');
@@ -1557,6 +1565,56 @@ ISS-403,RISKS,Critical risk of certificate expiration on internal webhook gatewa
               </div>
             ))}
           </div>
+
+          {versionSnapshots.length > 0 && (
+            <div className="pt-4 border-t border-slate-200 space-y-3">
+              <h3 className="text-sm font-bold text-slate-900">
+                Immutable Approved Report Snapshots ({versionSnapshots.length})
+              </h3>
+              {versionSnapshots.map((snap) => {
+                const isExpanded = expandedVersionId === snap.id;
+                return (
+                  <div
+                    key={snap.id}
+                    className="rounded-xl border border-slate-200 bg-white overflow-hidden"
+                  >
+                    <div className="p-4 flex flex-wrap items-center justify-between gap-2 bg-slate-50 text-xs">
+                      <div>
+                        <span className="font-mono font-bold text-emerald-800 bg-emerald-50 px-2 py-0.5 rounded border border-emerald-200 mr-2">
+                          Snapshot v{snap.version} ({snap.approvalStatus})
+                        </span>
+                        <span className="text-slate-700 font-medium">
+                          Approved by {snap.approvedByName || 'Team Leader'} •{' '}
+                          {snap.itemsSnapshot.length} items
+                        </span>
+                      </div>
+                      <button
+                        type="button"
+                        onClick={() =>
+                          setExpandedVersionId(isExpanded ? null : snap.id)
+                        }
+                        className="px-2.5 py-1 rounded border border-slate-300 bg-white hover:bg-slate-100 font-semibold text-slate-700"
+                      >
+                        {isExpanded ? 'Hide Snapshot' : 'Inspect Snapshot'}
+                      </button>
+                    </div>
+                    {isExpanded && (
+                      <div className="p-4 space-y-2 text-xs max-h-72 overflow-y-auto divide-y divide-slate-100">
+                        {snap.itemsSnapshot.map((item) => (
+                          <div key={item.id} className="pt-2 first:pt-0">
+                            <span className="font-mono text-[11px] text-teal-700 font-semibold mr-2">
+                              [{item.section}] ({item.reviewStatus})
+                            </span>
+                            <span className="text-slate-800">{item.statement}</span>
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+                );
+              })}
+            </div>
+          )}
         </div>
       )}
 
