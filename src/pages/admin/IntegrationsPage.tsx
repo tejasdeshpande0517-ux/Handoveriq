@@ -150,11 +150,11 @@ export const IntegrationsPage: React.FC = () => {
                       {intg.requiredEnvVar}
                     </code>
                   </div>
-                  {intg.maskedCredential && (
+                  {intg.configured && (
                     <div className="flex items-center justify-between">
-                      <span className="text-slate-500">Server-Side Key:</span>
+                      <span className="text-slate-500">Server-Side Secret:</span>
                       <code className="font-mono text-teal-800">
-                        {intg.maskedCredential}
+                        •••••••••••••••• (Hidden Server-Side)
                       </code>
                     </div>
                   )}
@@ -203,11 +203,7 @@ export const IntegrationsPage: React.FC = () => {
                             [intg.id]: e.target.value,
                           }))
                         }
-                        placeholder={
-                          intg.id === 'github'
-                            ? 'ghp_... or github_pat_...'
-                            : 'AIzaSy...'
-                        }
+                        placeholder="Enter credential (stored server-side only)"
                         className="w-full pl-8 pr-3 py-2 rounded-lg border border-slate-300 text-xs font-mono focus:ring-2 focus:ring-teal-600 focus:outline-none"
                       />
                     </div>

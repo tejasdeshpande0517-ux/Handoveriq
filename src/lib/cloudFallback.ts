@@ -37,7 +37,7 @@ import {
   queryKnowledgeBaseAI,
 } from '../../server/services/improvementsEngine';
 
-const STORE_KEY = 'handoveriq_cloud_store_v3';
+const STORE_KEY = 'handoveriq_cloud_store_v4';
 const CURRENT_USER_KEY = 'handoveriq_cloud_user_v1';
 
 interface CloudStore {
@@ -563,7 +563,7 @@ function createInitialStore(): CloudStore {
       provider: 'GITHUB',
       status: 'CONNECTED',
       configured: true,
-      maskedCredential: 'git_••••••••••••p8CJ',
+      maskedCredential: '••••••••••••••••',
       accountInfo: {
         login: 'Anuragkhobragade',
         name: 'Anurag',
@@ -2094,7 +2094,7 @@ export async function handleApiFallback<T>(
         const u: any = await checkResp.json();
         integration.configured = true;
         integration.status = 'CONNECTED';
-        integration.maskedCredential = `${cred.slice(0, 4)}••••••••${cred.slice(-4)}`;
+        integration.maskedCredential = '••••••••••••••••';
         integration.accountInfo = {
           login: u.login,
           name: u.name || u.login,
@@ -2112,7 +2112,7 @@ export async function handleApiFallback<T>(
     } else {
       integration.configured = true;
       integration.status = 'CONNECTED';
-      integration.maskedCredential = `${cred.slice(0, 4)}••••••••`;
+      integration.maskedCredential = '••••••••••••••••';
       integration.errorMessage = null;
     }
     integration.lastVerifiedAt = nowIso();

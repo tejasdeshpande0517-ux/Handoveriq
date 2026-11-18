@@ -108,8 +108,8 @@ export function verifyPassword(password: string, hash: string, salt: string): bo
 }
 
 export function maskSecret(secret: string): string {
-  if (!secret || secret.length < 8) return '';
-  return `${secret.slice(0, 4)}${'*'.repeat(Math.min(12, secret.length - 8))}${secret.slice(-4)}`;
+  if (!secret || !secret.trim()) return '';
+  return '••••••••••••••••';
 }
 
 function createInitialSeedDatabase(): FirestoreDatabaseSchema {
