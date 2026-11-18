@@ -26,15 +26,12 @@ export const RedactionRulesPage: React.FC = () => {
   const [description, setDescription] = useState('');
   const [creating, setCreating] = useState(false);
 
-  // Live Redaction Tester State
+  // Live Redaction Tester State (No API keys or GitHub tokens displayed in frontend)
   const [sampleInput, setSampleInput] = useState(
-    `Engineering Handover Test Snippet:
-1. Google Gemini API Key: AIzaSyD1234567890abcdefghijklmnopqrstuv
-2. GitHub Token: ghp_99887766554433221100aabbccddeeffgghh
-3. Database URI: postgres://db_admin:MySuperSecretPass123!@10.0.0.12:5432/prod
-4. Contact Email: aris.thorne@handoveriq.io | Phone: +1-415-890-4412
-5. SSN / ID: 123-45-6789 | Bank IBAN: DE89370400440532013000
-6. Confidential Keyword: OBSIDIAN-MASTER-KEY-99`
+    `Engineering Handover Verification Snippet:
+1. Contact Email: engineer.team@company.org | On-Call Phone: +1-415-890-4412
+2. National ID / Reference: 123-45-6789 | Settlement IBAN: DE89370400440532013000
+3. Internal Database Host: db-primary.internal.net (Port 5432)`
   );
   const [testOutput, setTestOutput] = useState<{
     redactedText: string;
@@ -331,7 +328,9 @@ export const RedactionRulesPage: React.FC = () => {
                   </div>
                   <p className="text-xs text-slate-600">{r.description}</p>
                   <p className="text-[11px] font-mono text-slate-400 truncate">
-                    Pattern: {r.pattern} → {r.replacement}
+                    {r.isBuiltIn
+                      ? `Action: Automatically replaces matched ${r.category} values with ${r.replacement}`
+                      : `Pattern: ${r.pattern} → ${r.replacement}`}
                   </p>
                 </div>
 
