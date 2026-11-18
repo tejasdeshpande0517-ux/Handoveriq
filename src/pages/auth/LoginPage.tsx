@@ -9,24 +9,28 @@ const ROLE_DEMO_PROFILES = [
     role: 'ADMIN',
     name: 'Elena Rostova',
     email: 'admin@handoveriq.io',
+    pass: 'HandoverAdmin#2026',
     desc: 'Manage users, projects, integrations, redaction rules & audit logs',
   },
   {
     role: 'TEAM_LEADER',
     name: 'Marcus Vance',
     email: 'leader@handoveriq.io',
+    pass: 'HandoverLead#2026',
     desc: 'Create handovers, run AI analysis, review & publish verified reports',
   },
   {
     role: 'DEPARTING_MEMBER',
     name: 'Dr. Aris Thorne',
     email: 'departing@handoveriq.io',
+    pass: 'HandoverDept#2026',
     desc: 'Upload sources, add context, answer open questions & confirm/dispute findings',
   },
   {
     role: 'SUCCESSOR',
     name: 'Priya Nair',
     email: 'successor@handoveriq.io',
+    pass: 'HandoverSucc#2026',
     desc: 'Access published reports, inspect source citations, use Grounded AI Q&A & export PDF',
   },
 ];
@@ -79,10 +83,23 @@ export const LoginPage: React.FC = () => {
     }
   };
 
-  const handleQuickRoleSelect = (demoEmail: string) => {
-    setEmail(demoEmail);
-    setPassword('');
-    showToast('info', 'Email Pre-filled', `Enter password for ${demoEmail} to sign in.`);
+  const handleQuickRoleSelect = async (demoEmail: string, demoPass: string) => {
+    try {
+      setEmail(demoEmail);
+      setPassword(demoPass);
+      setLoading(true);
+      const user = await login(demoEmail, demoPass);
+      showToast('success', `Welcome back, ${user.name}`, `Signed in as ${user.role}`);
+      if (user.role === 'SUCCESSOR') {
+        navigate('/successor');
+      } else {
+        navigate('/dashboard');
+      }
+    } catch (err: any) {
+      showToast('error', 'Quick Sign-In Failed', err.message);
+    } finally {
+      setLoading(false);
+    }
   };
 
   return (
@@ -127,8 +144,8 @@ export const LoginPage: React.FC = () => {
                 <button
                   key={cred.role}
                   type="button"
-                  onClick={() => handleQuickRoleSelect(cred.email)}
-                  className="text-left p-3.5 rounded-xl bg-slate-800/90 hover:bg-slate-800 border border-slate-700 hover:border-teal-500/60 transition-all group"
+                  onClick={() => handleQuickRoleSelect(cred.email, cred.pass)}
+                  className="text-left p-3.5 rounded-xl bg-slate-800/90 hover:bg-slate-800 border border-slate-700 hover:border-teal-500/60 transition-all group cursor-pointer"
                 >
                   <div className="flex items-center justify-between">
                     <span className="text-xs font-mono font-bold text-teal-400">

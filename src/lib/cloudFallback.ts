@@ -37,7 +37,7 @@ import {
   queryKnowledgeBaseAI,
 } from '../../server/services/improvementsEngine';
 
-const STORE_KEY = 'handoveriq_cloud_store_v4';
+const STORE_KEY = 'handoveriq_cloud_store_v5';
 const CURRENT_USER_KEY = 'handoveriq_cloud_user_v1';
 
 interface CloudStore {
@@ -72,38 +72,38 @@ function createInitialStore(): CloudStore {
   const users: UserProfile[] = [
     {
       uid: 'demo-admin-1',
-      name: 'Aarav Mehta',
-      email: 'admin@handoveriq.dev',
+      name: 'Elena Rostova',
+      email: 'admin@handoveriq.io',
       role: 'ADMIN',
-      department: 'Platform Security',
-      title: 'Principal Security Architect',
+      department: 'Platform Security & Governance',
+      title: 'Principal Systems Administrator',
       createdAt: earlier,
     },
     {
       uid: 'demo-leader-1',
-      name: 'Priya Nair',
-      email: 'leader@handoveriq.dev',
+      name: 'Marcus Vance',
+      email: 'leader@handoveriq.io',
       role: 'TEAM_LEADER',
-      department: 'Core Engineering',
-      title: 'Engineering Manager',
+      department: 'Core Cloud Infrastructure',
+      title: 'Engineering Team Leader',
       createdAt: earlier,
     },
     {
       uid: 'demo-departing-1',
-      name: 'Rohan Kulkarni',
-      email: 'rohan@handoveriq.dev',
+      name: 'Dr. Aris Thorne',
+      email: 'departing@handoveriq.io',
       role: 'DEPARTING_MEMBER',
-      department: 'Payments & Auth',
-      title: 'Senior Backend Engineer',
+      department: 'Core Cloud Infrastructure',
+      title: 'Staff Backend Architect',
       createdAt: earlier,
     },
     {
       uid: 'demo-successor-1',
-      name: 'Ananya Sharma',
-      email: 'ananya@handoveriq.dev',
+      name: 'Priya Nair',
+      email: 'successor@handoveriq.io',
       role: 'SUCCESSOR',
-      department: 'Payments & Auth',
-      title: 'Software Engineer II',
+      department: 'Core Cloud Infrastructure',
+      title: 'Senior Distributed Systems Engineer',
       createdAt: earlier,
     },
   ];
@@ -668,6 +668,18 @@ function saveStore(store: CloudStore): void {
 }
 
 function getActiveActor(store: CloudStore): UserProfile {
+  try {
+    const raw = localStorage.getItem(CURRENT_USER_KEY);
+    if (raw) {
+      const parsed = JSON.parse(raw) as UserProfile;
+      if (parsed && parsed.uid && parsed.role) {
+        return parsed;
+      }
+    }
+  } catch {
+    // ignore
+  }
+
   const fbUser = firebaseAuth?.currentUser;
   if (fbUser) {
     const existing = store.users.find((u) => u.uid === fbUser.uid);
@@ -685,15 +697,6 @@ function getActiveActor(store: CloudStore): UserProfile {
     ensureUserHasProjectAccess(store, created.uid);
     saveStore(store);
     return created;
-  }
-
-  try {
-    const raw = localStorage.getItem(CURRENT_USER_KEY);
-    if (raw) {
-      return JSON.parse(raw) as UserProfile;
-    }
-  } catch {
-    // ignore
   }
 
   return store.users[1] || store.users[0];
@@ -892,6 +895,17 @@ export async function handleApiFallback<T>(
 
   // AUTH
   if (path === '/api/auth/me' && method === 'GET') {
+    try {
+      const raw = localStorage.getItem(CURRENT_USER_KEY);
+      if (raw) {
+        const parsed = JSON.parse(raw) as UserProfile;
+        if (parsed && parsed.uid && parsed.role) {
+          return { user: parsed } as T;
+        }
+      }
+    } catch {
+      // ignore
+    }
     if (firebaseAuth?.currentUser && isFirebaseConfigured && firestoreDb) {
       try {
         const userSnap = await getDoc(doc(firestoreDb, 'users', firebaseAuth.currentUser.uid));
@@ -929,12 +943,26 @@ export async function handleApiFallback<T>(
 
   if (path === '/api/auth/login' && method === 'POST') {
     const email = String(body.email || '').trim().toLowerCase();
-    let user = store.users.find((u) => u.email.toLowerCase() === email);
+    const roleAliases: Record<string, UserProfile> = {
+      'admin@handoveriq.io': store.users.find((u) => u.role === 'ADMIN')!,
+      'admin@handoveriq.dev': store.users.find((u) => u.role === 'ADMIN')!,
+      'elena.rostova@handoveriq.io': store.users.find((u) => u.role === 'ADMIN')!,
+      'leader@handoveriq.io': store.users.find((u) => u.role === 'TEAM_LEADER')!,
+      'leader@handoveriq.dev': store.users.find((u) => u.role === 'TEAM_LEADER')!,
+      'marcus.vance@handoveriq.io': store.users.find((u) => u.role === 'TEAM_LEADER')!,
+      'departing@handoveriq.io': store.users.find((u) => u.role === 'DEPARTING_MEMBER')!,
+      'rohan@handoveriq.dev': store.users.find((u) => u.role === 'DEPARTING_MEMBER')!,
+      'aris.thorne@handoveriq.io': store.users.find((u) => u.role === 'DEPARTING_MEMBER')!,
+      'successor@handoveriq.io': store.users.find((u) => u.role === 'SUCCESSOR')!,
+      'ananya@handoveriq.dev': store.users.find((u) => u.role === 'SUCCESSOR')!,
+      'priya.nair@handoveriq.io': store.users.find((u) => u.role === 'SUCCESSOR')!,
+    };
+    let user = roleAliases[email] || store.users.find((u) => u.email.toLowerCase() === email);
     if (!user) {
       user = {
         uid: genId('user'),
         name: email.split('@')[0] || 'Workspace User',
-        email: email || 'user@handoveriq.dev',
+        email: email || 'user@handoveriq.io',
         role: 'TEAM_LEADER',
         department: 'Engineering',
         title: 'Workspace Member',

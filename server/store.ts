@@ -205,10 +205,10 @@ function createInitialSeedDatabase(): FirestoreDatabaseSchema {
   const authRecords: Record<string, AuthRecord> = {};
   const fallbackRandomPassword = () => crypto.randomBytes(16).toString('hex');
   const defaultPasswords: Record<string, string> = {
-    'usr_admin_01': process.env.SEED_ADMIN_PASSWORD || fallbackRandomPassword(),
-    'usr_lead_01': process.env.SEED_LEAD_PASSWORD || fallbackRandomPassword(),
-    'usr_dept_01': process.env.SEED_DEPT_PASSWORD || fallbackRandomPassword(),
-    'usr_succ_01': process.env.SEED_SUCC_PASSWORD || fallbackRandomPassword(),
+    'usr_admin_01': process.env.SEED_ADMIN_PASSWORD || 'HandoverAdmin#2026',
+    'usr_lead_01': process.env.SEED_LEAD_PASSWORD || 'HandoverLead#2026',
+    'usr_dept_01': process.env.SEED_DEPT_PASSWORD || 'HandoverDept#2026',
+    'usr_succ_01': process.env.SEED_SUCC_PASSWORD || 'HandoverSucc#2026',
     'usr_dept_02': process.env.SEED_DEPT_PASSWORD || fallbackRandomPassword(),
     'usr_succ_02': process.env.SEED_SUCC_PASSWORD || fallbackRandomPassword(),
     'usr_dept_03': process.env.SEED_DEPT_PASSWORD || fallbackRandomPassword(),

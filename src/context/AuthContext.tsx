@@ -83,6 +83,18 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({
     refreshUser();
     if (!isFirebaseConfigured) return;
     const unsub = onAuthStateChanged(firebaseAuth, async (fbUser) => {
+      try {
+        const raw = localStorage.getItem('handoveriq_cloud_user_v1');
+        if (raw) {
+          const parsed = JSON.parse(raw) as UserProfile;
+          if (parsed && parsed.uid && parsed.role) {
+            setUser(parsed);
+            return;
+          }
+        }
+      } catch {
+        // ignore
+      }
       if (fbUser && !user) {
         const profile = await resolveFirebaseUserProfile(fbUser);
         setUser((prev) => prev || profile);

@@ -30,24 +30,28 @@ const DEMO_ACCOUNTS = [
   {
     label: 'Marcus Vance (Team Leader)',
     short: 'Team Lead',
+    role: 'TEAM_LEADER',
     email: 'leader@handoveriq.io',
     pass: 'HandoverLead#2026',
   },
   {
     label: 'Elena Rostova (Admin)',
     short: 'Admin',
+    role: 'ADMIN',
     email: 'admin@handoveriq.io',
     pass: 'HandoverAdmin#2026',
   },
   {
     label: 'Dr. Aris Thorne (Departing)',
     short: 'Departing',
+    role: 'DEPARTING_MEMBER',
     email: 'departing@handoveriq.io',
     pass: 'HandoverDept#2026',
   },
   {
     label: 'Priya Nair (Successor)',
     short: 'Successor',
+    role: 'SUCCESSOR',
     email: 'successor@handoveriq.io',
     pass: 'HandoverSucc#2026',
   },
@@ -184,6 +188,7 @@ export const Header: React.FC<HeaderProps> = ({ onToggleMobileSidebar }) => {
           <div className="hidden xl:flex items-center gap-1 bg-white/90 border border-slate-200/90 rounded-full p-1 shadow-2xs">
             {DEMO_ACCOUNTS.map((acc) => {
               const isActive =
+                user.role === acc.role ||
                 user.email.toLowerCase() === acc.email.toLowerCase();
               return (
                 <button

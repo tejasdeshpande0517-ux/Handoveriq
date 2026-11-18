@@ -42,6 +42,7 @@ interface NavItem {
 const QUICK_ROLES = [
   {
     name: 'Marcus Vance',
+    role: 'TEAM_LEADER',
     roleLabel: 'Team Leader',
     email: 'leader@handoveriq.io',
     pass: 'HandoverLead#2026',
@@ -50,6 +51,7 @@ const QUICK_ROLES = [
   },
   {
     name: 'Elena Rostova',
+    role: 'ADMIN',
     roleLabel: 'Admin',
     email: 'admin@handoveriq.io',
     pass: 'HandoverAdmin#2026',
@@ -58,6 +60,7 @@ const QUICK_ROLES = [
   },
   {
     name: 'Dr. Aris Thorne',
+    role: 'DEPARTING_MEMBER',
     roleLabel: 'Departing Member',
     email: 'departing@handoveriq.io',
     pass: 'HandoverDept#2026',
@@ -66,6 +69,7 @@ const QUICK_ROLES = [
   },
   {
     name: 'Priya Nair',
+    role: 'SUCCESSOR',
     roleLabel: 'Successor',
     email: 'successor@handoveriq.io',
     pass: 'HandoverSucc#2026',
@@ -350,6 +354,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
               <div className="space-y-1 mt-1">
                 {QUICK_ROLES.map((qr) => {
                   const active =
+                    user.role === qr.role ||
                     user.email.toLowerCase() === qr.email.toLowerCase();
                   return (
                     <button
