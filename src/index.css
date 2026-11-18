@@ -98,6 +98,80 @@
   animation: dashDraw 1.2s cubic-bezier(0.16, 1, 0.3, 1) forwards;
 }
 
+@keyframes robotEyeBlink {
+  0%, 42%, 46%, 50%, 92%, 96%, 100% {
+    transform: scaleY(1);
+  }
+  44%, 48%, 94% {
+    transform: scaleY(0.08);
+  }
+}
+
+@keyframes robotEyeLook {
+  0%, 20%, 100% {
+    transform: translate(0px, 0px);
+  }
+  30%, 45% {
+    transform: translate(2.5px, -0.5px);
+  }
+  60%, 78% {
+    transform: translate(-2.5px, 0.5px);
+  }
+}
+
+@keyframes robotAntennaWave {
+  0%, 100% {
+    transform: rotate(-12deg);
+  }
+  50% {
+    transform: rotate(12deg);
+  }
+}
+
+@keyframes robotHeadTilt {
+  0%, 100% {
+    transform: translateY(0px) rotate(-2deg);
+  }
+  50% {
+    transform: translateY(-3px) rotate(2.5deg);
+  }
+}
+
+@keyframes robotCorePulse {
+  0%, 100% {
+    transform: scale(0.92);
+    opacity: 0.75;
+  }
+  50% {
+    transform: scale(1.22);
+    opacity: 1;
+  }
+}
+
+.robot-eye-blink {
+  transform-origin: 55px 45px;
+  animation: robotEyeBlink 3.6s ease-in-out infinite;
+}
+
+.robot-eye-look {
+  animation: robotEyeLook 5.2s ease-in-out infinite;
+}
+
+.robot-antenna-sway {
+  transform-origin: 55px 20px;
+  animation: robotAntennaWave 2.2s ease-in-out infinite;
+}
+
+.robot-head-tilt {
+  transform-origin: 55px 60px;
+  animation: robotHeadTilt 3.4s ease-in-out infinite;
+}
+
+.robot-core-pulse {
+  transform-origin: 55px 87px;
+  animation: robotCorePulse 1.8s ease-in-out infinite;
+}
+
 /* Custom sleek scrollbars */
 ::-webkit-scrollbar {
   width: 6px;
