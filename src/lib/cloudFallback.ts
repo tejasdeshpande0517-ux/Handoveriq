@@ -13,6 +13,8 @@ import type {
   AuditLog,
   DashboardStats,
   Handover,
+  HandoverSummary,
+  HandoverTask,
   IntegrationConfig,
   Project,
   QACitation,
@@ -22,9 +24,18 @@ import type {
   ReportItem,
   ReportSection,
   SourceDocument,
+  SummaryFormat,
+  TaskPriority,
+  TaskStatus,
   UserProfile,
   UserRole,
 } from '../types';
+import {
+  buildAuthorizedKnowledgeBase,
+  decorateAndComputeTaskStats,
+  generateStructuredHandoverSummary,
+  queryKnowledgeBaseAI,
+} from '../../server/services/improvementsEngine';
 
 const STORE_KEY = 'handoveriq_cloud_store_v3';
 const CURRENT_USER_KEY = 'handoveriq_cloud_user_v1';
@@ -40,6 +51,8 @@ interface CloudStore {
   auditLogs: AuditLog[];
   notifications: AppNotification[];
   qaHistory?: Record<string, QAResponse[]>;
+  handoverSummaries?: HandoverSummary[];
+  tasks?: HandoverTask[];
 }
 
 function nowIso(): string {
@@ -2174,6 +2187,246 @@ export async function handleApiFallback<T>(
     if (notif) notif.read = true;
     saveStore(store);
     return { success: true } as T;
+  }
+
+  // IMPROVEMENT 1: AI HANDOVER SUMMARIES
+  store.handoverSummaries = store.handoverSummaries || [];
+  store.tasks = store.tasks || [
+    {
+      id: 'tsk-cloud-1',
+      title: 'Merge PR #418 — Redis Shard Rebalancing Script',
+      description: 'Complete dry-run validation before Q1 settlement traffic spike.',
+      projectId: 'proj-auth-core',
+      handoverId: 'ho-payments-q4',
+      assignedUserId: 'demo-successor-1',
+      assignedUserName: 'Ananya Sharma',
+      createdBy: 'demo-leader-1',
+      createdByName: 'Priya Nair',
+      priority: 'CRITICAL',
+      startDate: nowIso().slice(0, 10),
+      deadline: new Date(Date.now() + 86400000 * 4).toISOString().slice(0, 10),
+      status: 'IN_PROGRESS',
+      progressPercent: 60,
+      attachments: [],
+      comments: [],
+      history: [],
+      createdAt: nowIso(),
+      updatedAt: nowIso(),
+    },
+    {
+      id: 'tsk-cloud-2',
+      title: 'Finalize 90-day BigQuery Partition Expiration Rule',
+      description: 'Configure cold archival rule for raw audit_events staging tables.',
+      projectId: 'proj-data-pipeline',
+      handoverId: 'ho-audit-stream',
+      assignedUserId: 'demo-departing-1',
+      assignedUserName: 'Rohan Kulkarni',
+      createdBy: 'demo-leader-1',
+      createdByName: 'Priya Nair',
+      priority: 'HIGH',
+      startDate: new Date(Date.now() - 86400000 * 5).toISOString().slice(0, 10),
+      deadline: new Date(Date.now() - 86400000 * 1).toISOString().slice(0, 10),
+      status: 'TODO',
+      progressPercent: 0,
+      attachments: [],
+      comments: [],
+      history: [],
+      createdAt: nowIso(),
+      updatedAt: nowIso(),
+    },
+  ];
+
+  const sumListMatch = path.match(/^\/api\/handovers\/([^/]+)\/summaries$/);
+  if (sumListMatch && method === 'GET') {
+    const hid = sumListMatch[1];
+    const summaries = store.handoverSummaries
+      .filter((s) => s.handoverId === hid)
+      .sort((a, b) => b.version - a.version);
+    return { summaries } as T;
+  }
+
+  const sumGenMatch = path.match(/^\/api\/handovers\/([^/]+)\/summaries\/generate$/);
+  if (sumGenMatch && method === 'POST') {
+    const hid = sumGenMatch[1];
+    const handover = store.handovers.find((h) => h.id === hid);
+    if (!handover) throw new Error('Handover not found');
+    const project = store.projects.find((p) => p.id === handover.projectId) || null;
+    const sources = store.sources.filter((s) => s.handoverId === hid);
+    const reportItems = store.reportItems.filter((r) => r.handoverId === hid);
+    const existing = store.handoverSummaries.filter((s) => s.handoverId === hid);
+    const nextVersion =
+      existing.length > 0 ? Math.max(...existing.map((s) => s.version)) + 1 : 1;
+    const rawFmt = String(body.format || 'MEDIUM').toUpperCase();
+    const format: SummaryFormat =
+      rawFmt === 'SHORT' || rawFmt === 'DETAILED' ? rawFmt : 'MEDIUM';
+    const usersMap = Object.fromEntries(store.users.map((u) => [u.uid, u]));
+    const summary = await generateStructuredHandoverSummary({
+      handover,
+      project,
+      sources,
+      reportItems,
+      tasks: store.tasks,
+      usersMap,
+      format,
+      version: nextVersion,
+      actor,
+    });
+    store.handoverSummaries.unshift(summary);
+    saveStore(store);
+    const summaries = store.handoverSummaries
+      .filter((s) => s.handoverId === hid)
+      .sort((a, b) => b.version - a.version);
+    return { summary, summaries } as T;
+  }
+
+  const sumUpdMatch = path.match(/^\/api\/handovers\/([^/]+)\/summaries\/([^/]+)$/);
+  if (sumUpdMatch && method === 'PUT') {
+    const summary = store.handoverSummaries.find((s) => s.id === sumUpdMatch[2]);
+    if (!summary) throw new Error('Summary not found');
+    if (Array.isArray(body.sections)) {
+      summary.sections = body.sections;
+    }
+    summary.editedBy = actor.uid;
+    summary.editedByName = actor.name;
+    summary.updatedAt = nowIso();
+    saveStore(store);
+    return { summary } as T;
+  }
+
+  // IMPROVEMENT 2: SMART TASK TRACKING
+  if (path === '/api/tasks' && method === 'GET') {
+    const { decoratedTasks, stats } = decorateAndComputeTaskStats(
+      store.tasks,
+      actor.uid
+    );
+    return { tasks: decoratedTasks, stats } as T;
+  }
+
+  if (path === '/api/tasks' && method === 'POST') {
+    const project = store.projects.find((p) => p.id === body.projectId);
+    if (!project) throw new Error('Project not found');
+    const assignedUser = store.users.find((u) => u.uid === body.assignedUserId) || actor;
+    const now = nowIso();
+    const status: TaskStatus = body.status || 'TODO';
+    const task: HandoverTask = {
+      id: genId('tsk'),
+      title: String(body.title || 'New Task'),
+      description: String(body.description || ''),
+      projectId: project.id,
+      handoverId: body.handoverId || undefined,
+      assignedUserId: assignedUser.uid,
+      assignedUserName: assignedUser.name,
+      createdBy: actor.uid,
+      createdByName: actor.name,
+      priority: (body.priority as TaskPriority) || 'MEDIUM',
+      startDate: body.startDate || now.slice(0, 10),
+      deadline:
+        body.deadline || new Date(Date.now() + 86400000 * 7).toISOString().slice(0, 10),
+      status,
+      progressPercent: status === 'COMPLETED' ? 100 : Number(body.progressPercent ?? 0),
+      attachments: Array.isArray(body.attachments) ? body.attachments : [],
+      comments: [],
+      history: [
+        {
+          id: genId('th'),
+          actorId: actor.uid,
+          actorName: actor.name,
+          action: 'TASK_CREATED',
+          details: `Assigned to ${assignedUser.name}`,
+          timestamp: now,
+        },
+      ],
+      createdAt: now,
+      updatedAt: now,
+    };
+    store.tasks.unshift(task);
+    saveStore(store);
+    const { decoratedTasks } = decorateAndComputeTaskStats([task], actor.uid);
+    return { task: decoratedTasks[0] } as T;
+  }
+
+  const taskCommentMatch = path.match(/^\/api\/tasks\/([^/]+)\/comments$/);
+  if (taskCommentMatch && method === 'POST') {
+    const task = store.tasks.find((t) => t.id === taskCommentMatch[1]);
+    if (!task) throw new Error('Task not found');
+    const now = nowIso();
+    task.comments.push({
+      id: genId('cmt'),
+      authorId: actor.uid,
+      authorName: actor.name,
+      text: String(body.text || ''),
+      createdAt: now,
+    });
+    task.updatedAt = now;
+    saveStore(store);
+    return { task } as T;
+  }
+
+  const taskIdMatch = path.match(/^\/api\/tasks\/([^/]+)$/);
+  if (taskIdMatch) {
+    const task = store.tasks.find((t) => t.id === taskIdMatch[1]);
+    if (!task) throw new Error('Task not found');
+    if (method === 'PATCH') {
+      const now = nowIso();
+      if (body.assignedUserId) {
+        const u = store.users.find((usr) => usr.uid === body.assignedUserId);
+        if (u) {
+          task.assignedUserId = u.uid;
+          task.assignedUserName = u.name;
+        }
+      }
+      if (body.priority) task.priority = body.priority;
+      if (body.deadline) task.deadline = body.deadline;
+      if (body.status) {
+        task.status = body.status;
+        if (task.status === 'COMPLETED') task.progressPercent = 100;
+      }
+      if (body.progressPercent !== undefined) {
+        task.progressPercent =
+          task.status === 'COMPLETED' ? 100 : Number(body.progressPercent);
+      }
+      if (body.title) task.title = body.title;
+      if (body.description !== undefined) task.description = body.description;
+      task.updatedAt = now;
+      saveStore(store);
+      const { decoratedTasks } = decorateAndComputeTaskStats([task], actor.uid);
+      return { task: decoratedTasks[0] } as T;
+    }
+    if (method === 'DELETE') {
+      store.tasks = store.tasks.filter((t) => t.id !== task.id);
+      saveStore(store);
+      return { success: true } as T;
+    }
+  }
+
+  // IMPROVEMENT 3: CENTRALIZED KNOWLEDGE BASE
+  if (path === '/api/knowledge-base' && method === 'GET') {
+    const usersMap = Object.fromEntries(store.users.map((u) => [u.uid, u]));
+    const entries = buildAuthorizedKnowledgeBase({
+      accessibleProjects: store.projects,
+      accessibleHandovers: store.handovers,
+      sources: store.sources,
+      reportItems: store.reportItems,
+      summaries: store.handoverSummaries,
+      usersMap,
+      isSuccessor: actor.role === 'SUCCESSOR',
+    });
+    return { entries } as T;
+  }
+
+  if (path === '/api/knowledge-base/ask' && method === 'POST') {
+    const usersMap = Object.fromEntries(store.users.map((u) => [u.uid, u]));
+    const entries = buildAuthorizedKnowledgeBase({
+      accessibleProjects: store.projects,
+      accessibleHandovers: store.handovers,
+      sources: store.sources,
+      reportItems: store.reportItems,
+      summaries: store.handoverSummaries,
+      usersMap,
+      isSuccessor: actor.role === 'SUCCESSOR',
+    });
+    const result = queryKnowledgeBaseAI(String(body.query || ''), entries);
+    return { result } as T;
   }
 
   throw new Error(`Unsupported endpoint in cloud mode: ${path}`);

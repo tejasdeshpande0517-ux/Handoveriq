@@ -13,6 +13,8 @@ import { HandoversPage } from './pages/handovers/HandoversPage';
 import { CreateHandoverPage } from './pages/handovers/CreateHandoverPage';
 import { HandoverWorkspacePage } from './pages/handovers/HandoverWorkspacePage';
 import { SuccessorPortalPage } from './pages/successor/SuccessorPortalPage';
+import { TasksPage } from './pages/tasks/TasksPage';
+import { KnowledgeBasePage } from './pages/knowledge/KnowledgeBasePage';
 import { UsersAdminPage } from './pages/admin/UsersAdminPage';
 import { IntegrationsPage } from './pages/admin/IntegrationsPage';
 import { RedactionRulesPage } from './pages/admin/RedactionRulesPage';
@@ -34,6 +36,8 @@ export const App: React.FC = () => {
               <Route path="/dashboard" element={<DashboardPage />} />
               <Route path="/projects" element={<ProjectsPage />} />
               <Route path="/projects/:id" element={<ProjectDetailPage />} />
+              <Route path="/tasks" element={<TasksPage />} />
+              <Route path="/knowledge-base" element={<KnowledgeBasePage />} />
               <Route path="/successor" element={<SuccessorPortalPage />} />
               <Route path="/admin/redaction" element={<RedactionRulesPage />} />
               <Route path="/admin/integrations" element={<IntegrationsPage />} />

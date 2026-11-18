@@ -377,3 +377,163 @@ export interface QAResponse {
   referencedReportItemIds: string[];
   timestamp: string;
 }
+
+// ============================================================================
+// IMPROVEMENT 1: AI-POWERED HANDOVER SUMMARY GENERATION
+// ============================================================================
+export type SummaryFormat = 'SHORT' | 'MEDIUM' | 'DETAILED';
+
+export type SummarySectionKey =
+  | 'EXECUTIVE_SUMMARY'
+  | 'PROJECT_OVERVIEW'
+  | 'IMPORTANT_UPDATES'
+  | 'COMPLETED_WORK'
+  | 'PENDING_TASKS'
+  | 'CRITICAL_INFORMATION'
+  | 'OPEN_ISSUES'
+  | 'TECHNICAL_RISKS'
+  | 'IMPORTANT_DEADLINES'
+  | 'REQUIRED_NEXT_ACTIONS'
+  | 'IMPORTANT_DEPENDENCIES'
+  | 'RECOMMENDATIONS_FOR_SUCCESSOR';
+
+export interface HandoverSummarySection {
+  key: SummarySectionKey;
+  title: string;
+  content: string;
+  isRecommendation: boolean;
+  sourceIds: string[];
+  available: boolean;
+}
+
+export interface HandoverSummary {
+  id: string;
+  handoverId: string;
+  projectId: string;
+  version: number;
+  format: SummaryFormat;
+  sections: HandoverSummarySection[];
+  sourceIds: string[];
+  generatedBy: string;
+  generatedByName: string;
+  editedBy?: string;
+  editedByName?: string;
+  engineUsed: 'GEMINI_API' | 'EXTRACTIVE_GROUNDED';
+  createdAt: string;
+  updatedAt: string;
+}
+
+// ============================================================================
+// IMPROVEMENT 2: SMART TASK TRACKING AND ASSIGNMENT
+// ============================================================================
+export type TaskStatus =
+  | 'TODO'
+  | 'IN_PROGRESS'
+  | 'UNDER_REVIEW'
+  | 'COMPLETED'
+  | 'BLOCKED';
+
+export type TaskPriority = 'LOW' | 'MEDIUM' | 'HIGH' | 'CRITICAL';
+
+export interface TaskComment {
+  id: string;
+  authorId: string;
+  authorName: string;
+  text: string;
+  createdAt: string;
+}
+
+export interface TaskHistoryEntry {
+  id: string;
+  actorId: string;
+  actorName: string;
+  action: string;
+  details: string;
+  timestamp: string;
+}
+
+export interface HandoverTask {
+  id: string;
+  title: string;
+  description: string;
+  projectId: string;
+  handoverId?: string;
+  assignedUserId: string;
+  assignedUserName: string;
+  createdBy: string;
+  createdByName: string;
+  priority: TaskPriority;
+  startDate: string;
+  deadline: string;
+  status: TaskStatus;
+  progressPercent: number;
+  attachments: { name: string; url: string }[];
+  comments: TaskComment[];
+  history: TaskHistoryEntry[];
+  isOverdue?: boolean;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface TaskDashboardStats {
+  totalTasks: number;
+  pendingTasks: number;
+  inProgressTasks: number;
+  completedTasks: number;
+  overdueTasks: number;
+  blockedTasks: number;
+  tasksAssignedToMe: number;
+  projectProgress: Record<string, number>;
+  handoverProgress: Record<string, number>;
+}
+
+// ============================================================================
+// IMPROVEMENT 3: CENTRALIZED SEARCHABLE HANDOVER KNOWLEDGE BASE
+// ============================================================================
+export type KnowledgeRecordType =
+  | 'HANDOVER_REPORT'
+  | 'PROJECT_DOCUMENT'
+  | 'GITHUB_README'
+  | 'GITHUB_ACTIVITY'
+  | 'KEY_DECISION'
+  | 'ISSUE_RECORD'
+  | 'AI_SUMMARY';
+
+export interface KnowledgeBaseEntry {
+  id: string;
+  recordType: KnowledgeRecordType;
+  title: string;
+  excerpt: string;
+  content: string;
+  projectId: string;
+  projectName: string;
+  handoverId?: string;
+  handoverTitle?: string;
+  handoverStatus?: HandoverStatus;
+  sourceId?: string;
+  url?: string;
+  author: string;
+  isImportant: boolean;
+  timestamp: string;
+  updatedAt: string;
+  tags: string[];
+}
+
+export interface KnowledgeAIQueryResult {
+  query: string;
+  answer: string;
+  grounded: boolean;
+  citations: {
+    entryId: string;
+    title: string;
+    recordType: KnowledgeRecordType;
+    projectName: string;
+    handoverId?: string;
+    sourceId?: string;
+    excerpt: string;
+    url?: string;
+  }[];
+  matchedEntries: KnowledgeBaseEntry[];
+  timestamp: string;
+}
+

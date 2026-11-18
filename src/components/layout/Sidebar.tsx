@@ -2,9 +2,11 @@ import React, { useState } from 'react';
 import { NavLink, useNavigate } from 'react-router-dom';
 import {
   ArrowRight,
+  BookOpen,
   ChevronDown,
   ChevronLeft,
   ChevronRight,
+  ClipboardList,
   FileCheck2,
   FileText,
   FolderClosed,
@@ -105,6 +107,18 @@ export const Sidebar: React.FC<SidebarProps> = ({
       to: '/handovers',
       icon: <FileText className="w-5 h-5 shrink-0" />,
       roles: ['ADMIN', 'TEAM_LEADER', 'DEPARTING_MEMBER'],
+    },
+    {
+      label: 'Tasks',
+      to: '/tasks',
+      icon: <ClipboardList className="w-5 h-5 shrink-0" />,
+      roles: ['ADMIN', 'TEAM_LEADER', 'DEPARTING_MEMBER', 'SUCCESSOR'],
+    },
+    {
+      label: 'Knowledge Base',
+      to: '/knowledge-base',
+      icon: <BookOpen className="w-5 h-5 shrink-0" />,
+      roles: ['ADMIN', 'TEAM_LEADER', 'DEPARTING_MEMBER', 'SUCCESSOR'],
     },
     {
       label: 'Q&A Assistant',

@@ -46,6 +46,7 @@ import type {
 } from '../../types';
 import { LoadingSkeleton } from '../../components/common/LoadingSkeleton';
 import { SourceCitationModal } from '../../components/common/SourceCitationModal';
+import { HandoverSummaryPanel } from '../../components/handovers/HandoverSummaryPanel';
 import {
   ConfidenceBadge,
   DepartingStatusBadge,
@@ -87,7 +88,12 @@ export const HandoverWorkspacePage: React.FC = () => {
 
   // Active Workspace Tab
   const [activeTab, setActiveTab] = useState<
-    'REPORT_REVIEW' | 'INGESTION' | 'DEPARTING_CONTEXT' | 'SOURCE_INDEX' | 'HISTORY'
+    | 'REPORT_REVIEW'
+    | 'INGESTION'
+    | 'DEPARTING_CONTEXT'
+    | 'SOURCE_INDEX'
+    | 'HISTORY'
+    | 'AI_SUMMARY'
   >('REPORT_REVIEW');
   const [selectedSectionFilter, setSelectedSectionFilter] = useState<
     ReportSection | 'ALL'
@@ -665,6 +671,10 @@ ISS-403,RISKS,Critical risk of certificate expiration on internal webhook gatewa
                   id: 'HISTORY',
                   label: `5. Version History (v${handover.approvalSummary?.version || 1})`,
                 },
+                {
+                  id: 'AI_SUMMARY',
+                  label: '6. AI Summary (12 Sections)',
+                },
               ] as const
             ).map((tab) => (
               <button
@@ -692,6 +702,7 @@ ISS-403,RISKS,Critical risk of certificate expiration on internal webhook gatewa
                   'DEPARTING_CONTEXT',
                   'SOURCE_INDEX',
                   'HISTORY',
+                  'AI_SUMMARY',
                 ] as const;
                 const idx = order.indexOf(activeTab);
                 const prevIdx = (idx - 1 + order.length) % order.length;
@@ -710,6 +721,7 @@ ISS-403,RISKS,Critical risk of certificate expiration on internal webhook gatewa
                   'DEPARTING_CONTEXT',
                   'SOURCE_INDEX',
                   'HISTORY',
+                  'AI_SUMMARY',
                 ] as const;
                 const idx = order.indexOf(activeTab);
                 const nextIdx = (idx + 1) % order.length;
@@ -1650,6 +1662,14 @@ ISS-403,RISKS,Critical risk of certificate expiration on internal webhook gatewa
       )}
 
       {/* Source Citation Modal */}
+      {activeTab === 'AI_SUMMARY' && (
+        <HandoverSummaryPanel
+          handover={handover}
+          project={project}
+          canEdit={Boolean((isLeaderOrAdmin || isDeparting) && !handover.versionLocked)}
+        />
+      )}
+
       <SourceCitationModal
         source={inspectedSource}
         highlightEvidence={inspectedEvidence}

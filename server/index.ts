@@ -8,6 +8,8 @@ import type {
   DashboardStats,
   DepartingReviewStatus,
   Handover,
+  HandoverSummary,
+  HandoverTask,
   Project,
   RedactionCategory,
   RedactionRule,
@@ -15,6 +17,9 @@ import type {
   ReportSection,
   ReviewStatus,
   SourceDocument,
+  SummaryFormat,
+  TaskPriority,
+  TaskStatus,
   UserProfile,
   UserRole,
 } from '../src/types/index.ts';
@@ -36,6 +41,13 @@ import {
 } from './services/github.ts';
 import { validateAndParseFile } from './services/parser.ts';
 import { generateServerHandoverPDF } from './services/pdfExport.ts';
+import {
+  buildAuthorizedKnowledgeBase,
+  decorateAndComputeTaskStats,
+  generateServerSummaryPDF,
+  generateStructuredHandoverSummary,
+  queryKnowledgeBaseAI,
+} from './services/improvementsEngine.ts';
 import { redactSensitiveContent } from './services/redaction.ts';
 import {
   firestoreStore,
@@ -274,6 +286,15 @@ function requireRoles(...allowedRoles: UserRole[]) {
     }
     next();
   };
+}
+
+function canUserAccessProject(user: UserProfile, project: Project): boolean {
+  if (user.role === 'ADMIN') return true;
+  return (
+    project.teamLeadId === user.uid ||
+    project.createdBy === user.uid ||
+    project.memberIds.includes(user.uid)
+  );
 }
 
 function canUserAccessHandover(user: UserProfile, handover: Handover): boolean {
@@ -3102,6 +3123,634 @@ app.patch(
     res.json({ success: true });
   }
 );
+
+// ============================================================================
+// 16. IMPROVEMENT 1: AI-POWERED HANDOVER SUMMARY GENERATION
+// ============================================================================
+app.get('/api/handovers/:id/summaries', requireAuth, (req: AuthenticatedRequest, res: Response) => {
+  const user = req.user!;
+  const handover = firestoreStore.state.handovers[String(req.params.id)];
+  if (!handover) {
+    res.status(404).json({ error: 'Handover not found.' });
+    return;
+  }
+  if (!canUserAccessHandover(user, handover)) {
+    res.status(403).json({ error: 'Access Denied.' });
+    return;
+  }
+  const allSummaries = Object.values(firestoreStore.state.handoverSummaries || {})
+    .filter((s) => s.handoverId === handover.id)
+    .sort((a, b) => b.version - a.version);
+  res.json({ summaries: allSummaries });
+});
+
+app.post(
+  '/api/handovers/:id/summaries/generate',
+  requireAuth,
+  async (req: AuthenticatedRequest, res: Response) => {
+    try {
+      const user = req.user!;
+      const handover = firestoreStore.state.handovers[String(req.params.id)];
+      if (!handover) {
+        res.status(404).json({ error: 'Handover not found.' });
+        return;
+      }
+      if (!canUserAccessHandover(user, handover)) {
+        res.status(403).json({ error: 'Access Denied.' });
+        return;
+      }
+
+      const rawFormat = String(req.body?.format || 'MEDIUM').toUpperCase();
+      const format: SummaryFormat =
+        rawFormat === 'SHORT' || rawFormat === 'DETAILED' ? rawFormat : 'MEDIUM';
+
+      firestoreStore.state.handoverSummaries = firestoreStore.state.handoverSummaries || {};
+      const existing = Object.values(firestoreStore.state.handoverSummaries).filter(
+        (s) => s.handoverId === handover.id
+      );
+      const nextVersion =
+        existing.length > 0 ? Math.max(...existing.map((s) => s.version)) + 1 : 1;
+
+      const project = firestoreStore.state.projects[handover.projectId] || null;
+      const sources = Object.values(firestoreStore.state.sources).filter(
+        (s) => s.handoverId === handover.id
+      );
+      let reportItems = Object.values(firestoreStore.state.reportItems).filter(
+        (i) => i.handoverId === handover.id
+      );
+      if (user.role === 'SUCCESSOR') {
+        reportItems = reportItems.filter((i) => i.reviewStatus === 'APPROVED');
+      }
+      const tasks = Object.values(firestoreStore.state.tasks || {}).filter(
+        (t) => t.handoverId === handover.id || t.projectId === handover.projectId
+      );
+      const geminiKey =
+        firestoreStore.state.serverSecrets.geminiApiKey || process.env.GEMINI_API_KEY || '';
+
+      const summary = await generateStructuredHandoverSummary({
+        handover,
+        project,
+        sources,
+        reportItems,
+        tasks,
+        usersMap: firestoreStore.state.users,
+        format,
+        version: nextVersion,
+        actor: user,
+        geminiApiKey: geminiKey,
+      });
+
+      firestoreStore.state.handoverSummaries[summary.id] = summary;
+      firestoreStore.save();
+
+      firestoreStore.appendAuditLog({
+        userId: user.uid,
+        userName: user.name,
+        userRole: user.role,
+        action: 'SUMMARY_GENERATE',
+        target: `AI Summary Generated (${format} v${nextVersion}): ${handover.title}`,
+        targetId: handover.id,
+        details: { summaryId: summary.id, format, version: nextVersion },
+      });
+
+      const summaries = Object.values(firestoreStore.state.handoverSummaries)
+        .filter((s) => s.handoverId === handover.id)
+        .sort((a, b) => b.version - a.version);
+
+      res.status(201).json({ summary, summaries });
+    } catch (err: any) {
+      res.status(500).json({ error: err.message || 'Failed to generate AI handover summary.' });
+    }
+  }
+);
+
+app.put(
+  '/api/handovers/:id/summaries/:summaryId',
+  requireAuth,
+  requireRoles('ADMIN', 'TEAM_LEADER', 'DEPARTING_MEMBER'),
+  (req: AuthenticatedRequest, res: Response) => {
+    const user = req.user!;
+    const handover = firestoreStore.state.handovers[String(req.params.id)];
+    if (!handover || !canUserAccessHandover(user, handover)) {
+      res.status(403).json({ error: 'Access Denied.' });
+      return;
+    }
+    const summaryId = String(req.params.summaryId);
+    const existing = firestoreStore.state.handoverSummaries?.[summaryId];
+    if (!existing || existing.handoverId !== handover.id) {
+      res.status(404).json({ error: 'Summary version not found.' });
+      return;
+    }
+
+    if (Array.isArray(req.body?.sections)) {
+      existing.sections = req.body.sections.map((sec: any, idx: number) => {
+        const orig = existing.sections[idx] || sec;
+        const content = sanitizeText(sec.content, 6000);
+        return {
+          ...orig,
+          content,
+          available: content !== 'Information not available in connected sources.',
+        };
+      });
+    }
+    existing.editedBy = user.uid;
+    existing.editedByName = user.name;
+    existing.updatedAt = new Date().toISOString();
+    firestoreStore.save();
+
+    firestoreStore.appendAuditLog({
+      userId: user.uid,
+      userName: user.name,
+      userRole: user.role,
+      action: 'SUMMARY_EDIT',
+      target: `AI Summary Edited (v${existing.version}): ${handover.title}`,
+      targetId: handover.id,
+      details: { summaryId: existing.id, version: existing.version },
+    });
+
+    res.json({ summary: existing });
+  }
+);
+
+app.get(
+  '/api/handovers/:id/summaries/:summaryId/pdf',
+  requireAuth,
+  (req: AuthenticatedRequest, res: Response) => {
+    const user = req.user!;
+    const handover = firestoreStore.state.handovers[String(req.params.id)];
+    if (!handover || !canUserAccessHandover(user, handover)) {
+      res.status(403).json({ error: 'Access Denied.' });
+      return;
+    }
+    const summary = firestoreStore.state.handoverSummaries?.[String(req.params.summaryId)];
+    if (!summary || summary.handoverId !== handover.id) {
+      res.status(404).json({ error: 'Summary not found.' });
+      return;
+    }
+    const project = firestoreStore.state.projects[handover.projectId] || null;
+    const pdfBuffer = generateServerSummaryPDF({ summary, handover, project });
+
+    firestoreStore.appendAuditLog({
+      userId: user.uid,
+      userName: user.name,
+      userRole: user.role,
+      action: 'SUMMARY_PDF_EXPORT',
+      target: `Summary PDF Exported (${summary.format} v${summary.version}): ${handover.title}`,
+      targetId: handover.id,
+      details: { summaryId: summary.id, format: summary.format, version: summary.version },
+    });
+
+    const safeFile = `HandoverIQ_Summary_${handover.id.replace(/[^a-zA-Z0-9_-]/g, '_')}_v${summary.version}.pdf`;
+    res.setHeader('Content-Type', 'application/pdf');
+    res.setHeader('Content-Disposition', `attachment; filename="${safeFile}"`);
+    res.send(pdfBuffer);
+  }
+);
+
+// ============================================================================
+// 17. IMPROVEMENT 2: SMART TASK TRACKING AND ASSIGNMENT
+// ============================================================================
+app.get('/api/tasks', requireAuth, (req: AuthenticatedRequest, res: Response) => {
+  const user = req.user!;
+  const allTasks = Object.values(firestoreStore.state.tasks || {}).filter((t) => {
+    const project = firestoreStore.state.projects[t.projectId];
+    return project ? canUserAccessProject(user, project) : user.role === 'ADMIN';
+  });
+
+  const { decoratedTasks, stats } = decorateAndComputeTaskStats(allTasks, user.uid);
+
+  // Deduplicated overdue task notifications
+  let notifAdded = false;
+  for (const t of decoratedTasks) {
+    if (t.isOverdue && t.assignedUserId) {
+      const notifTitle = `Overdue Task Alert: ${t.title}`;
+      const alreadyExists = Object.values(firestoreStore.state.notifications).some(
+        (n) => n.userId === t.assignedUserId && n.title === notifTitle
+      );
+      if (!alreadyExists) {
+        firestoreStore.createNotification({
+          userId: t.assignedUserId,
+          title: notifTitle,
+          message: `Task "${t.title}" passed its deadline (${t.deadline}) and is currently ${t.status}.`,
+          link: `/tasks?projectId=${t.projectId}`,
+        });
+        notifAdded = true;
+      }
+    }
+  }
+  if (notifAdded) firestoreStore.save();
+
+  res.json({ tasks: decoratedTasks, stats });
+});
+
+app.post(
+  '/api/tasks',
+  requireAuth,
+  requireRoles('ADMIN', 'TEAM_LEADER', 'DEPARTING_MEMBER'),
+  (req: AuthenticatedRequest, res: Response) => {
+    const user = req.user!;
+    const title = sanitizeText(req.body?.title, 180);
+    const description = sanitizeText(req.body?.description, 2000);
+    const projectId = String(req.body?.projectId || '').trim();
+    const handoverId = req.body?.handoverId ? String(req.body.handoverId).trim() : undefined;
+    const assignedUserId = String(req.body?.assignedUserId || '').trim();
+
+    if (!title || title.length < 2) {
+      res.status(400).json({ error: 'Task title (minimum 2 characters) is required.' });
+      return;
+    }
+    const project = firestoreStore.state.projects[projectId];
+    if (!project) {
+      res.status(404).json({ error: 'Target project not found.' });
+      return;
+    }
+    if (!canUserAccessProject(user, project)) {
+      res.status(403).json({
+        error: 'Access Denied: You cannot create tasks in a project you do not belong to.',
+      });
+      return;
+    }
+
+    const assignedUser = firestoreStore.state.users[assignedUserId];
+    const isAuthorizedAssignee =
+      assignedUser &&
+      (project.memberIds.includes(assignedUserId) ||
+        project.teamLeadId === assignedUserId ||
+        assignedUser.role === 'ADMIN');
+
+    if (!isAuthorizedAssignee) {
+      res.status(403).json({
+        error:
+          'Access Denied: Cannot assign task to an unauthorized user who is not a member of this project.',
+      });
+      return;
+    }
+
+    const validPriorities: TaskPriority[] = ['LOW', 'MEDIUM', 'HIGH', 'CRITICAL'];
+    const priority: TaskPriority = validPriorities.includes(req.body?.priority)
+      ? req.body.priority
+      : 'MEDIUM';
+
+    const validStatuses: TaskStatus[] = [
+      'TODO',
+      'IN_PROGRESS',
+      'UNDER_REVIEW',
+      'COMPLETED',
+      'BLOCKED',
+    ];
+    const status: TaskStatus = validStatuses.includes(req.body?.status)
+      ? req.body.status
+      : 'TODO';
+
+    const now = new Date().toISOString();
+    const startDate = req.body?.startDate || now.slice(0, 10);
+    const deadline =
+      req.body?.deadline || new Date(Date.now() + 86400000 * 7).toISOString().slice(0, 10);
+    const progressPercent =
+      status === 'COMPLETED'
+        ? 100
+        : Math.max(0, Math.min(100, Number(req.body?.progressPercent ?? 0)));
+
+    const id = `tsk_${Date.now()}_${crypto.randomBytes(3).toString('hex')}`;
+    const task: HandoverTask = {
+      id,
+      title,
+      description,
+      projectId,
+      handoverId,
+      assignedUserId,
+      assignedUserName: assignedUser.name,
+      createdBy: user.uid,
+      createdByName: user.name,
+      priority,
+      startDate,
+      deadline,
+      status,
+      progressPercent,
+      attachments: Array.isArray(req.body?.attachments) ? req.body.attachments : [],
+      comments: [],
+      history: [
+        {
+          id: `th_${Date.now()}`,
+          actorId: user.uid,
+          actorName: user.name,
+          action: 'TASK_CREATED',
+          details: `Created task (${priority}) and assigned to ${assignedUser.name} (Due: ${deadline})`,
+          timestamp: now,
+        },
+      ],
+      createdAt: now,
+      updatedAt: now,
+    };
+
+    firestoreStore.state.tasks = firestoreStore.state.tasks || {};
+    firestoreStore.state.tasks[id] = task;
+    firestoreStore.save();
+
+    firestoreStore.appendAuditLog({
+      userId: user.uid,
+      userName: user.name,
+      userRole: user.role,
+      action: 'TASK_CREATED',
+      target: `Task Created: ${task.title}`,
+      targetId: task.id,
+      details: {
+        projectId,
+        handoverId,
+        assignedUserId,
+        priority,
+        deadline,
+        status,
+      },
+    });
+
+    if (assignedUserId !== user.uid) {
+      firestoreStore.createNotification({
+        userId: assignedUserId,
+        title: `New Handover Task Assigned (${priority})`,
+        message: `${user.name} assigned you "${task.title}" (Deadline: ${deadline}).`,
+        link: `/tasks?projectId=${projectId}`,
+      });
+    }
+
+    const { decoratedTasks } = decorateAndComputeTaskStats([task], user.uid);
+    res.status(201).json({ task: decoratedTasks[0] });
+  }
+);
+
+app.patch('/api/tasks/:id', requireAuth, (req: AuthenticatedRequest, res: Response) => {
+  const user = req.user!;
+  const task = firestoreStore.state.tasks?.[String(req.params.id)];
+  if (!task) {
+    res.status(404).json({ error: 'Task not found.' });
+    return;
+  }
+  const project = firestoreStore.state.projects[task.projectId];
+  if (!project || !canUserAccessProject(user, project)) {
+    res.status(403).json({ error: 'Access Denied: You do not have access to this project task.' });
+    return;
+  }
+
+  const now = new Date().toISOString();
+  const changes: string[] = [];
+
+  if (req.body?.assignedUserId && req.body.assignedUserId !== task.assignedUserId) {
+    const newAssigneeId = String(req.body.assignedUserId);
+    const assignedUser = firestoreStore.state.users[newAssigneeId];
+    const isAuthorized =
+      assignedUser &&
+      (project.memberIds.includes(newAssigneeId) ||
+        project.teamLeadId === newAssigneeId ||
+        assignedUser.role === 'ADMIN');
+    if (!isAuthorized) {
+      res.status(403).json({
+        error:
+          'Access Denied: Cannot reassign task to an unauthorized user outside this project.',
+      });
+      return;
+    }
+    changes.push(`Reassigned from ${task.assignedUserName} to ${assignedUser.name}`);
+    task.assignedUserId = newAssigneeId;
+    task.assignedUserName = assignedUser.name;
+  }
+
+  if (req.body?.priority && req.body.priority !== task.priority) {
+    changes.push(`Priority changed from ${task.priority} to ${req.body.priority}`);
+    task.priority = req.body.priority;
+  }
+
+  if (req.body?.deadline && req.body.deadline !== task.deadline) {
+    changes.push(`Deadline changed from ${task.deadline} to ${req.body.deadline}`);
+    task.deadline = String(req.body.deadline);
+  }
+
+  if (req.body?.status && req.body.status !== task.status) {
+    changes.push(`Status changed from ${task.status} to ${req.body.status}`);
+    task.status = req.body.status;
+    if (task.status === 'COMPLETED') {
+      task.progressPercent = 100;
+    } else if (task.status === 'TODO' && req.body?.progressPercent === undefined) {
+      task.progressPercent = 0;
+    }
+  }
+
+  if (req.body?.progressPercent !== undefined) {
+    const nextPct =
+      task.status === 'COMPLETED'
+        ? 100
+        : Math.max(0, Math.min(100, Number(req.body.progressPercent)));
+    if (nextPct !== task.progressPercent) {
+      changes.push(`Progress updated from ${task.progressPercent}% to ${nextPct}%`);
+      task.progressPercent = nextPct;
+      if (nextPct === 100 && task.status !== 'COMPLETED') {
+        task.status = 'COMPLETED';
+      }
+    }
+  }
+
+  if (req.body?.title) task.title = sanitizeText(req.body.title, 180);
+  if (req.body?.description !== undefined) {
+    task.description = sanitizeText(req.body.description, 2000);
+  }
+  if (Array.isArray(req.body?.attachments)) {
+    task.attachments = req.body.attachments;
+  }
+
+  if (changes.length > 0) {
+    task.history.unshift({
+      id: `th_${Date.now()}_${crypto.randomBytes(2).toString('hex')}`,
+      actorId: user.uid,
+      actorName: user.name,
+      action: 'TASK_UPDATED',
+      details: changes.join(' • '),
+      timestamp: now,
+    });
+  }
+  task.updatedAt = now;
+
+  // Sync project progressPercent from actual tasks in this project
+  const projTasks = Object.values(firestoreStore.state.tasks || {}).filter(
+    (t) => t.projectId === project.id
+  );
+  if (projTasks.length > 0) {
+    project.progressPercent = Math.round(
+      projTasks.reduce((sum, t) => sum + (t.status === 'COMPLETED' ? 100 : t.progressPercent), 0) /
+        projTasks.length
+    );
+  }
+
+  firestoreStore.save();
+
+  firestoreStore.appendAuditLog({
+    userId: user.uid,
+    userName: user.name,
+    userRole: user.role,
+    action: 'TASK_UPDATED',
+    target: `Task Updated: ${task.title}`,
+    targetId: task.id,
+    details: { changes, status: task.status, progressPercent: task.progressPercent },
+  });
+
+  const { decoratedTasks } = decorateAndComputeTaskStats([task], user.uid);
+  res.json({ task: decoratedTasks[0] });
+});
+
+app.post('/api/tasks/:id/comments', requireAuth, (req: AuthenticatedRequest, res: Response) => {
+  const user = req.user!;
+  const task = firestoreStore.state.tasks?.[String(req.params.id)];
+  if (!task) {
+    res.status(404).json({ error: 'Task not found.' });
+    return;
+  }
+  const project = firestoreStore.state.projects[task.projectId];
+  if (!project || !canUserAccessProject(user, project)) {
+    res.status(403).json({ error: 'Access Denied.' });
+    return;
+  }
+  const text = sanitizeText(req.body?.text, 1000);
+  if (!text) {
+    res.status(400).json({ error: 'Comment text is required.' });
+    return;
+  }
+  const now = new Date().toISOString();
+  const comment = {
+    id: `cmt_${Date.now()}_${crypto.randomBytes(2).toString('hex')}`,
+    authorId: user.uid,
+    authorName: user.name,
+    text,
+    createdAt: now,
+  };
+  task.comments.push(comment);
+  task.history.unshift({
+    id: `th_${Date.now()}`,
+    actorId: user.uid,
+    actorName: user.name,
+    action: 'COMMENT_ADDED',
+    details: `Comment: "${text.slice(0, 80)}"`,
+    timestamp: now,
+  });
+  task.updatedAt = now;
+  firestoreStore.save();
+  res.status(201).json({ task });
+});
+
+app.delete('/api/tasks/:id', requireAuth, (req: AuthenticatedRequest, res: Response) => {
+  const user = req.user!;
+  const task = firestoreStore.state.tasks?.[String(req.params.id)];
+  if (!task) {
+    res.status(404).json({ error: 'Task not found.' });
+    return;
+  }
+  if (user.role !== 'ADMIN' && user.role !== 'TEAM_LEADER' && task.createdBy !== user.uid) {
+    res.status(403).json({ error: 'Access Denied: Only Team Leaders or Admins can delete tasks.' });
+    return;
+  }
+  delete firestoreStore.state.tasks![task.id];
+  firestoreStore.save();
+  res.json({ success: true });
+});
+
+// ============================================================================
+// 18. IMPROVEMENT 3: CENTRALIZED SEARCHABLE HANDOVER KNOWLEDGE BASE
+// ============================================================================
+app.get('/api/knowledge-base', requireAuth, (req: AuthenticatedRequest, res: Response) => {
+  const user = req.user!;
+  const accessibleProjects = Object.values(firestoreStore.state.projects).filter((p) =>
+    canUserAccessProject(user, p)
+  );
+  const accessibleHandovers = Object.values(firestoreStore.state.handovers).filter((h) =>
+    canUserAccessHandover(user, h)
+  );
+
+  let entries = buildAuthorizedKnowledgeBase({
+    accessibleProjects,
+    accessibleHandovers,
+    sources: Object.values(firestoreStore.state.sources),
+    reportItems: Object.values(firestoreStore.state.reportItems),
+    summaries: Object.values(firestoreStore.state.handoverSummaries || {}),
+    usersMap: firestoreStore.state.users,
+    isSuccessor: user.role === 'SUCCESSOR',
+  });
+
+  const q = String(req.query.q || '').trim().toLowerCase();
+  const projectId = String(req.query.projectId || '').trim();
+  const handoverId = String(req.query.handoverId || '').trim();
+  const recordType = String(req.query.recordType || '').trim();
+  const author = String(req.query.author || '').trim().toLowerCase();
+
+  if (projectId && projectId !== 'ALL') {
+    entries = entries.filter((e) => e.projectId === projectId);
+  }
+  if (handoverId && handoverId !== 'ALL') {
+    entries = entries.filter((e) => e.handoverId === handoverId);
+  }
+  if (recordType && recordType !== 'ALL') {
+    entries = entries.filter((e) => e.recordType === recordType);
+  }
+  if (author) {
+    entries = entries.filter((e) => e.author.toLowerCase().includes(author));
+  }
+  if (q) {
+    entries = entries.filter(
+      (e) =>
+        e.title.toLowerCase().includes(q) ||
+        e.content.toLowerCase().includes(q) ||
+        e.projectName.toLowerCase().includes(q) ||
+        e.tags.some((t) => t.toLowerCase().includes(q))
+    );
+  }
+
+  res.json({ entries });
+});
+
+app.post('/api/knowledge-base/ask', requireAuth, (req: AuthenticatedRequest, res: Response) => {
+  const user = req.user!;
+  const queryText = sanitizeText(req.body?.query, 1000);
+  if (!queryText) {
+    res.status(400).json({ error: 'Search query is required.' });
+    return;
+  }
+  const projectIdFilter = String(req.body?.projectId || '').trim();
+
+  const accessibleProjects = Object.values(firestoreStore.state.projects).filter((p) =>
+    canUserAccessProject(user, p)
+  );
+  const accessibleHandovers = Object.values(firestoreStore.state.handovers).filter((h) =>
+    canUserAccessHandover(user, h)
+  );
+
+  let entries = buildAuthorizedKnowledgeBase({
+    accessibleProjects,
+    accessibleHandovers,
+    sources: Object.values(firestoreStore.state.sources),
+    reportItems: Object.values(firestoreStore.state.reportItems),
+    summaries: Object.values(firestoreStore.state.handoverSummaries || {}),
+    usersMap: firestoreStore.state.users,
+    isSuccessor: user.role === 'SUCCESSOR',
+  });
+
+  if (projectIdFilter && projectIdFilter !== 'ALL') {
+    entries = entries.filter((e) => e.projectId === projectIdFilter);
+  }
+
+  const result = queryKnowledgeBaseAI(queryText, entries);
+
+  firestoreStore.appendAuditLog({
+    userId: user.uid,
+    userName: user.name,
+    userRole: user.role,
+    action: 'KNOWLEDGE_BASE_QUERY',
+    target: `Knowledge Base AI Search: "${queryText.slice(0, 80)}"`,
+    targetId: projectIdFilter || 'all_projects',
+    details: {
+      query: queryText,
+      grounded: result.grounded,
+      matchCount: result.matchedEntries.length,
+    },
+  });
+
+  res.json({ result });
+});
 
 // ============================================================================
 // GLOBAL ERROR HANDLER (No stack traces or internal details exposed)

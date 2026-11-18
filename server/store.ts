@@ -8,6 +8,8 @@ import type {
   AuditLog,
   Handover,
   HandoverReport,
+  HandoverSummary,
+  HandoverTask,
   IntegrationConfig,
   Project,
   ProjectMember,
@@ -82,6 +84,8 @@ export interface FirestoreDatabaseSchema {
   redactionRules: Record<string, RedactionRule>;
   notifications: Record<string, AppNotification>;
   qaHistory?: Record<string, QAResponse[]>;
+  handoverSummaries?: Record<string, HandoverSummary>;
+  tasks?: Record<string, HandoverTask>;
   serverSecrets: ServerSecrets;
 }
 
@@ -1326,6 +1330,116 @@ function normalizeDatabaseSchema(db: FirestoreDatabaseSchema): FirestoreDatabase
   }
 
   db.qaHistory = db.qaHistory || {};
+  db.handoverSummaries = db.handoverSummaries || {};
+  if (!db.tasks || Object.keys(db.tasks).length === 0) {
+    const nowIso = new Date().toISOString();
+    const pastDeadline = new Date(Date.now() - 86400000 * 2).toISOString().slice(0, 10);
+    const futureDeadline1 = new Date(Date.now() + 86400000 * 4).toISOString().slice(0, 10);
+    const futureDeadline2 = new Date(Date.now() + 86400000 * 9).toISOString().slice(0, 10);
+    db.tasks = {
+      tsk_seed_01: {
+        id: 'tsk_seed_01',
+        title: 'Merge PR #418 — Redis Cluster Shard Rebalancing Script',
+        description:
+          'Finalize dry-run validation and merge PR #418 before the Q1 settlement traffic spike.',
+        projectId: 'proj_payment_gateway',
+        handoverId: 'hnd_published_01',
+        assignedUserId: 'usr_succ_01',
+        assignedUserName: 'Priya Nair',
+        createdBy: 'usr_lead_01',
+        createdByName: 'Marcus Vance',
+        priority: 'CRITICAL',
+        startDate: nowIso.slice(0, 10),
+        deadline: futureDeadline1,
+        status: 'IN_PROGRESS',
+        progressPercent: 60,
+        attachments: [{ name: 'payments-runbook.txt', url: '#src_pay_notes_03' }],
+        comments: [
+          {
+            id: 'cmt_01',
+            authorId: 'usr_dept_01',
+            authorName: 'Dr. Aris Thorne',
+            text: 'Run scripts/rebalance-dryrun.sh on staging-eu-west first.',
+            createdAt: nowIso,
+          },
+        ],
+        history: [
+          {
+            id: 'th_01',
+            actorId: 'usr_lead_01',
+            actorName: 'Marcus Vance',
+            action: 'TASK_CREATED',
+            details: 'Assigned to Priya Nair (CRITICAL)',
+            timestamp: nowIso,
+          },
+        ],
+        createdAt: nowIso,
+        updatedAt: nowIso,
+      },
+      tsk_seed_02: {
+        id: 'tsk_seed_02',
+        title: 'Configure PagerDuty Alert Hook for Root Intermediate CA Expiry',
+        description:
+          'Prevent mTLS token mesh outage before 2026-12-15 certificate expiration.',
+        projectId: 'proj_auth_mesh',
+        handoverId: 'hnd_review_01',
+        assignedUserId: 'usr_dept_01',
+        assignedUserName: 'Dr. Aris Thorne',
+        createdBy: 'usr_lead_01',
+        createdByName: 'Marcus Vance',
+        priority: 'HIGH',
+        startDate: pastDeadline,
+        deadline: pastDeadline,
+        status: 'TODO',
+        progressPercent: 0,
+        attachments: [],
+        comments: [],
+        history: [
+          {
+            id: 'th_02',
+            actorId: 'usr_lead_01',
+            actorName: 'Marcus Vance',
+            action: 'TASK_CREATED',
+            details: 'Assigned to Dr. Aris Thorne (HIGH)',
+            timestamp: nowIso,
+          },
+        ],
+        createdAt: nowIso,
+        updatedAt: nowIso,
+      },
+      tsk_seed_03: {
+        id: 'tsk_seed_03',
+        title: 'Verify PostgreSQL Logical Replication Slot Lag Threshold (15s / 64MB)',
+        description:
+          'Confirm automated failover script triggers on secondary PostgreSQL logical replication slot.',
+        projectId: 'proj_payment_gateway',
+        handoverId: 'hnd_published_01',
+        assignedUserId: 'usr_succ_01',
+        assignedUserName: 'Priya Nair',
+        createdBy: 'usr_lead_01',
+        createdByName: 'Marcus Vance',
+        priority: 'MEDIUM',
+        startDate: nowIso.slice(0, 10),
+        deadline: futureDeadline2,
+        status: 'COMPLETED',
+        progressPercent: 100,
+        attachments: [],
+        comments: [],
+        history: [
+          {
+            id: 'th_03',
+            actorId: 'usr_succ_01',
+            actorName: 'Priya Nair',
+            action: 'STATUS_UPDATED',
+            details: 'Marked COMPLETED (100%)',
+            timestamp: nowIso,
+          },
+        ],
+        createdAt: nowIso,
+        updatedAt: nowIso,
+      },
+    };
+  }
 
   return db;
 }

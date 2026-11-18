@@ -6,8 +6,13 @@ import type {
   DepartingReviewStatus,
   Handover,
   HandoverReport,
+  HandoverSummary,
+  HandoverSummarySection,
+  HandoverTask,
   HandoverVersionEntry,
   IntegrationConfig,
+  KnowledgeAIQueryResult,
+  KnowledgeBaseEntry,
   Project,
   QAResponse,
   RedactionRule,
@@ -15,6 +20,10 @@ import type {
   ReportSection,
   ReviewStatus,
   SourceDocument,
+  SummaryFormat,
+  TaskDashboardStats,
+  TaskPriority,
+  TaskStatus,
   UserProfile,
   UserRole,
 } from '../types';
@@ -347,6 +356,126 @@ export const api = {
     logPdfDownload: (handoverId: string) =>
       apiRequest<{ logged: boolean }>(`/api/handovers/${handoverId}/pdf-log`, {
         method: 'POST',
+      }),
+    listSummaries: (handoverId: string) =>
+      apiRequest<{ summaries: HandoverSummary[] }>(
+        `/api/handovers/${handoverId}/summaries`
+      ),
+    generateSummary: (handoverId: string, format: SummaryFormat = 'MEDIUM') =>
+      apiRequest<{ summary: HandoverSummary; summaries: HandoverSummary[] }>(
+        `/api/handovers/${handoverId}/summaries/generate`,
+        {
+          method: 'POST',
+          body: JSON.stringify({ format }),
+        }
+      ),
+    updateSummary: (
+      handoverId: string,
+      summaryId: string,
+      sections: HandoverSummarySection[]
+    ) =>
+      apiRequest<{ summary: HandoverSummary }>(
+        `/api/handovers/${handoverId}/summaries/${summaryId}`,
+        {
+          method: 'PUT',
+          body: JSON.stringify({ sections }),
+        }
+      ),
+    downloadSummaryPdf: async (
+      handoverId: string,
+      summaryId: string
+    ): Promise<Blob | null> => {
+      try {
+        const res = await fetch(
+          `/api/handovers/${handoverId}/summaries/${summaryId}/pdf`,
+          { credentials: 'include' }
+        );
+        if (res.status === 404 || res.status === 502 || res.status === 503) {
+          return null;
+        }
+        if (!res.ok) return null;
+        const ct = res.headers.get('content-type') || '';
+        if (!ct.includes('application/pdf')) return null;
+        return await res.blob();
+      } catch {
+        return null;
+      }
+    },
+  },
+
+  tasks: {
+    list: () =>
+      apiRequest<{ tasks: HandoverTask[]; stats: TaskDashboardStats }>(
+        '/api/tasks'
+      ),
+    create: (payload: {
+      title: string;
+      description?: string;
+      projectId: string;
+      handoverId?: string;
+      assignedUserId: string;
+      priority?: TaskPriority;
+      startDate?: string;
+      deadline?: string;
+      status?: TaskStatus;
+      progressPercent?: number;
+      attachments?: { name: string; url: string }[];
+    }) =>
+      apiRequest<{ task: HandoverTask }>('/api/tasks', {
+        method: 'POST',
+        body: JSON.stringify(payload),
+      }),
+    update: (
+      id: string,
+      payload: Partial<{
+        title: string;
+        description: string;
+        assignedUserId: string;
+        priority: TaskPriority;
+        deadline: string;
+        status: TaskStatus;
+        progressPercent: number;
+        attachments: { name: string; url: string }[];
+      }>
+    ) =>
+      apiRequest<{ task: HandoverTask }>(`/api/tasks/${id}`, {
+        method: 'PATCH',
+        body: JSON.stringify(payload),
+      }),
+    addComment: (id: string, text: string) =>
+      apiRequest<{ task: HandoverTask }>(`/api/tasks/${id}/comments`, {
+        method: 'POST',
+        body: JSON.stringify({ text }),
+      }),
+    delete: (id: string) =>
+      apiRequest<{ success: boolean }>(`/api/tasks/${id}`, {
+        method: 'DELETE',
+      }),
+  },
+
+  knowledgeBase: {
+    list: (params?: {
+      q?: string;
+      projectId?: string;
+      handoverId?: string;
+      recordType?: string;
+      author?: string;
+    }) => {
+      const qs = new URLSearchParams();
+      if (params?.q) qs.set('q', params.q);
+      if (params?.projectId) qs.set('projectId', params.projectId);
+      if (params?.handoverId) qs.set('handoverId', params.handoverId);
+      if (params?.recordType) qs.set('recordType', params.recordType);
+      if (params?.author) qs.set('author', params.author);
+      const suffix = qs.toString() ? `?${qs.toString()}` : '';
+      return apiRequest<{ entries: KnowledgeBaseEntry[] }>(
+        `/api/knowledge-base${suffix}`
+      );
+    },
+    ask: (query: string, projectId?: string) =>
+      apiRequest<{ result: KnowledgeAIQueryResult }>('/api/knowledge-base/ask', {
+        method: 'POST',
+        body: JSON.stringify({ query, projectId }),
       }),
   },
 
