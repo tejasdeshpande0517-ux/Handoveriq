@@ -30,6 +30,7 @@ import {
 } from 'lucide-react';
 import { useAuth } from '../../context/AuthContext';
 import { useToast } from '../../context/ToastContext';
+import { AnimatedRobotAvatar } from '../../components/common/AnimatedRobotAvatar';
 import { api } from '../../lib/api';
 import type {
   DashboardStats,
@@ -1238,159 +1239,8 @@ export const DashboardPage: React.FC = () => {
           <div className="pointer-events-none absolute bottom-10 right-4 w-36 h-36 rounded-full bg-teal-400/20 blur-2xl" />
 
           <div className="relative z-10 flex items-center gap-4">
-            {/* Animated 3D-Style Glowing Robot Character */}
-            <div className="w-22 h-22 shrink-0 animate-float-slow select-none">
-              <svg viewBox="0 0 110 110" className="w-full h-full drop-shadow-[0_0_16px_rgba(45,245,220,0.45)]">
-                {/* Robot Torso with Pulsing Core Reactor */}
-                <path
-                  d="M34 76C34 73 76 73 76 76L82 98H28L34 76Z"
-                  fill="url(#robotHeadGrad)"
-                  stroke="#5eead4"
-                  strokeWidth="1.5"
-                />
-                <circle cx="55" cy="87" r="7.5" fill="#4ef2dc" opacity="0.25" className="robot-core-pulse" />
-                <circle cx="55" cy="87" r="5" fill="#14b8a6" className="robot-core-pulse">
-                  <animate attributeName="r" values="4.2;5.6;4.2" dur="1.8s" repeatCount="indefinite" />
-                </circle>
-
-                {/* Animated Head Group (Tilts & Bobs Like a Living Robot) */}
-                <g className="robot-head-tilt">
-                  {/* Swaying Robot Antenna + Expanding Signal Wave */}
-                  <g className="robot-antenna-sway">
-                    <animateTransform
-                      attributeName="transform"
-                      type="rotate"
-                      values="-13 55 20; 13 55 20; -13 55 20"
-                      dur="2.1s"
-                      repeatCount="indefinite"
-                    />
-                    <line
-                      x1="55"
-                      y1="8"
-                      x2="55"
-                      y2="21"
-                      stroke="#5eead4"
-                      strokeWidth="3"
-                      strokeLinecap="round"
-                    />
-                    {/* Expanding Signal Ripple */}
-                    <circle cx="55" cy="8" r="4.5" fill="none" stroke="#4ef2dc" strokeWidth="1.5">
-                      <animate attributeName="r" values="4.5;12" dur="1.6s" repeatCount="indefinite" />
-                      <animate attributeName="opacity" values="0.85;0" dur="1.6s" repeatCount="indefinite" />
-                    </circle>
-                    <circle cx="55" cy="8" r="4.5" fill="#4ef2dc">
-                      <animate attributeName="fill" values="#4ef2dc;#ffffff;#4ef2dc" dur="1.6s" repeatCount="indefinite" />
-                    </circle>
-                  </g>
-
-                  {/* Robot Ear Headphones (Subtle Pulse) */}
-                  <rect x="14" y="36" width="9" height="22" rx="4.5" fill="#2dd4bf">
-                    <animate attributeName="y" values="36;34.5;36" dur="1.8s" repeatCount="indefinite" />
-                  </rect>
-                  <rect x="87" y="36" width="9" height="22" rx="4.5" fill="#2dd4bf">
-                    <animate attributeName="y" values="36;34.5;36" dur="1.8s" repeatCount="indefinite" />
-                  </rect>
-
-                  {/* Robot Head Dome */}
-                  <rect
-                    x="21"
-                    y="20"
-                    width="68"
-                    height="52"
-                    rx="24"
-                    fill="url(#robotHeadGrad)"
-                    stroke="#99f6e4"
-                    strokeWidth="2"
-                  />
-
-                  {/* Robot Visor Faceplate */}
-                  <rect
-                    x="29"
-                    y="31"
-                    width="52"
-                    height="30"
-                    rx="13"
-                    fill="#041e24"
-                    stroke="#2dd4bf"
-                    strokeWidth="1.5"
-                  />
-
-                  {/* Glowing Cyan Eyes (Look Around + Realistic Double-Blink) */}
-                  <g className="robot-eye-look">
-                    <g className="robot-eye-blink">
-                      {/* Left Eye */}
-                      <ellipse cx="43" cy="45" rx="5" ry="5" fill="#4ef2dc">
-                        <animate
-                          attributeName="ry"
-                          values="5;5;0.4;5;0.4;5;5"
-                          keyTimes="0;0.42;0.45;0.48;0.51;0.54;1"
-                          dur="3.6s"
-                          repeatCount="indefinite"
-                        />
-                      </ellipse>
-                      <circle cx="44.5" cy="43.5" r="1.8" fill="#ffffff">
-                        <animate
-                          attributeName="opacity"
-                          values="1;1;0;1;0;1;1"
-                          keyTimes="0;0.42;0.45;0.48;0.51;0.54;1"
-                          dur="3.6s"
-                          repeatCount="indefinite"
-                        />
-                      </circle>
-                      {/* Right Eye */}
-                      <ellipse cx="67" cy="45" rx="5" ry="5" fill="#4ef2dc">
-                        <animate
-                          attributeName="ry"
-                          values="5;5;0.4;5;0.4;5;5"
-                          keyTimes="0;0.42;0.45;0.48;0.51;0.54;1"
-                          dur="3.6s"
-                          repeatCount="indefinite"
-                        />
-                      </ellipse>
-                      <circle cx="68.5" cy="43.5" r="1.8" fill="#ffffff">
-                        <animate
-                          attributeName="opacity"
-                          values="1;1;0;1;0;1;1"
-                          keyTimes="0;0.42;0.45;0.48;0.51;0.54;1"
-                          dur="3.6s"
-                          repeatCount="indefinite"
-                        />
-                      </circle>
-                    </g>
-                  </g>
-
-                  {/* Friendly Expressive Smile */}
-                  <path
-                    d="M49 53C51 55.5 59 55.5 61 53"
-                    stroke="#4ef2dc"
-                    strokeWidth="2"
-                    strokeLinecap="round"
-                  >
-                    <animate
-                      attributeName="d"
-                      values="M49 53C51 55.5 59 55.5 61 53;M48 52.5C51 56.5 59 56.5 62 52.5;M49 53C51 55.5 59 55.5 61 53"
-                      dur="3.4s"
-                      repeatCount="indefinite"
-                    />
-                  </path>
-                </g>
-
-                <defs>
-                  <linearGradient
-                    id="robotHeadGrad"
-                    x1="21"
-                    y1="20"
-                    x2="89"
-                    y2="98"
-                    gradientUnits="userSpaceOnUse"
-                  >
-                    <stop stopColor="#ffffff" />
-                    <stop offset="0.6" stopColor="#ccfbf1" />
-                    <stop offset="1" stopColor="#5eead4" />
-                  </linearGradient>
-                </defs>
-              </svg>
-            </div>
+            {/* 3D Animated Robot Avatar (Random Non-Scripted Blinking, Gaze, Antenna & Thumbs-Up) */}
+            <AnimatedRobotAvatar className="w-26 h-26" />
 
             <div>
               <div className="flex items-center gap-1.5">
