@@ -515,3 +515,4 @@ export const HandoverSummaryPanel: React.FC<HandoverSummaryPanelProps> = ({
     </div>
   );
 };
+

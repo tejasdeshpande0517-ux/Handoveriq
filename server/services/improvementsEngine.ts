@@ -766,3 +766,4 @@ export function queryKnowledgeBaseAI(
     timestamp: new Date().toISOString(),
   };
 }
+

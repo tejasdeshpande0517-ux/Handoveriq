@@ -280,7 +280,8 @@ export const HandoverWorkspacePage: React.FC = () => {
       if (format === 'TXT') {
         fileName = `sprint-handover-notes-${Date.now().toString().slice(-4)}.txt`;
         rawText = `Engineering Handover Log — ${project?.name || handover.title}
-Author: ${usersMap[handover.departingMemberId]?.name || 'Departing Engineer'} (eng.team@handoveriq.io | Phone: +1-555-234-8899)
+Author: ${usersMap[handover.departingMemberId]?.name || 'Departing Engineer'} (eng.secret@handoveriq.io | Phone: +1-555-234-8899)
+Credentials to Strip: api_key=AIzaSyD99887766554433221100AbCdEfGhIjK | DB_PASSWORD=ProdVaultPass!9922
 Architecture Overview: Service processes distributed transaction queues using active-active worker nodes and Cloud Firestore state checkpoints.
 Key Decision: Decided to adopt exponential backoff with jitter on all webhook dispatchers to prevent downstream cascade failures.
 Pending Work: TODO: Complete integration tests for multi-region failover controller before release v3.4 (PR #512 open).
@@ -290,16 +291,17 @@ Risk: Critical risk of SLA breach if dead-letter queue consumer is not scaled pr
 Open Question: Should we increase the default webhook timeout from 3000ms to 6000ms for legacy enterprise tenants?`;
       } else if (format === 'CSV') {
         fileName = `issue-backlog-export-${Date.now().toString().slice(-4)}.csv`;
-        rawText = `IssueID,Category,Statement,OwnerEmail,Status
-ISS-401,PENDING_WORK,Complete automated schema migration script for partition table,aris.thorne@handoveriq.io,OPEN
-ISS-402,PROBLEMS_ISSUES,Bug in connection pool causes timeout under >500 concurrent requests,aris.thorne@handoveriq.io,OPEN
-ISS-403,RISKS,Critical risk of certificate expiration on internal webhook gateway if cron monitor fails,marcus.vance@handoveriq.io,ACTIVE`;
+        rawText = `IssueID,Category,Statement,OwnerEmail,SecretToken,Status
+ISS-401,PENDING_WORK,Complete automated schema migration script for partition table,aris.thorne@handoveriq.io,ghp_1234567890abcdef1234567890abcdef,OPEN
+ISS-402,PROBLEMS_ISSUES,Bug in connection pool causes timeout under >500 concurrent requests,aris.thorne@handoveriq.io,sk-live00998877665544332211,OPEN
+ISS-403,RISKS,Critical risk of certificate expiration on internal webhook gateway if cron monitor fails,marcus.vance@handoveriq.io,NONE,ACTIVE`;
       } else {
         fileName = `architecture-decisions-${Date.now().toString().slice(-4)}.json`;
         rawText = JSON.stringify(
           {
             service: project?.name || handover.title,
             maintainerContact: 'aris.thorne@handoveriq.io',
+            emergencyApiKey: 'AIzaSyTestSecretKey987654321000',
             decisions: [
               'Decided to standardize all inter-service payloads on strict JSON Schema validation prior to queue ingestion.',
             ],

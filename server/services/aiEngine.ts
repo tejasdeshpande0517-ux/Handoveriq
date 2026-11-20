@@ -727,22 +727,21 @@ export async function answerGroundedQuestion(params: {
   if (/^(hi|hello|hey|greetings|good\s+(morning|afternoon|evening))[!.?\s]*$/i.test(lowerQ)) {
     const firstCite = approvedSources[0]
       ? [
-          {
-            sourceId: approvedSources[0].id,
-            title: approvedSources[0].title,
-            type: approvedSources[0].type,
-            url: approvedSources[0].url,
-            author: approvedSources[0].author,
-            timestamp: approvedSources[0].timestamp,
-            excerpt: approvedSources[0].redactedText.slice(0, 220),
-          },
-        ]
+        {
+          sourceId: approvedSources[0].id,
+          title: approvedSources[0].title,
+          type: approvedSources[0].type,
+          url: approvedSources[0].url,
+          author: approvedSources[0].author,
+          timestamp: approvedSources[0].timestamp,
+          excerpt: approvedSources[0].redactedText.slice(0, 220),
+        },
+      ]
       : [];
     return {
       question,
-      answer: `Hello! I am your HandoverIQ assistant. I can help you understand the approved project handover for **${
-        contextMeta?.projectName || contextMeta?.handoverTitle || 'your workspace'
-      }** — including technical decisions, pending tasks, known problems, dependencies, risks, and transition team details. How can I help you today?`,
+      answer: `Hello! I am your HandoverIQ assistant. I can help you understand the approved project handover for **${contextMeta?.projectName || contextMeta?.handoverTitle || 'your workspace'
+        }** — including technical decisions, pending tasks, known problems, dependencies, risks, and transition team details. How can I help you today?`,
       grounded: true,
       engineUsed: geminiApiKey ? 'GEMINI_RAG' : 'DETERMINISTIC_RAG',
       citations: firstCite,

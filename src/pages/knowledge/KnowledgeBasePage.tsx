@@ -560,3 +560,4 @@ export const KnowledgeBasePage: React.FC = () => {
     </div>
   );
 };
+
